@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2011 - present Instructure, Inc.
 #
@@ -20,6 +22,7 @@
 require File.expand_path(File.dirname(__FILE__) + '/../spec_helper.rb')
 
 describe RubricAssessment do
+
   before :once do
     assignment_model
     @teacher = user_factory(active_all: true)
@@ -31,6 +34,125 @@ describe RubricAssessment do
     rubric_model
     @association = @rubric.associate_with(@assignment, @course, :purpose => 'grading', :use_for_grading => true)
   end
+
+  describe "related_group_submissions_and_assessments" do
+
+    def assess_using_rubric(rubric, rubric_params, rubric_association_params)
+      association = rubric.update_with_association(
+        @user,
+        rubric_params,
+        @course,
+        rubric_association_params
+      )
+
+      assessment = association.assess({
+        user: @student,
+        assessor: @teacher,
+        artifact: @assignment.find_or_create_submission(@student),
+        assessment: {
+          assessment_type: 'grading',
+          criterion_crit1: {
+            points: 5,
+            comments: "comments",
+          }
+        }
+      })
+      [association, assessment.related_group_submissions_and_assessments.first[:rubric_assessments]]
+    end
+
+    before(:once) do
+      @assessment = @association.assess({
+        user: @student,
+        assessor: @teacher,
+        artifact: @assignment.find_or_create_submission(@student),
+        assessment: {
+          assessment_type: 'grading',
+          criterion_crit1: {
+            points: 5,
+            comments: "comments",
+          }
+        }
+      })
+    end
+
+    it "uses the current rubric association" do
+      # assess using another rubric
+      r_association, r_assessments = assess_using_rubric(
+        @course.rubrics.build,
+        {
+          title: "Some Rubric1",
+          criteria: {
+            "0": {
+              learning_outcome_id: "",
+              ratings: {
+                "0": {
+                  points:"5",
+                  id: "blank",
+                  description: "Full Marks"
+                },
+                "1": {
+                  points: "0",
+                  id: "blank_2",
+                  description:"No Marks"
+                }
+              },
+              points: "5",
+              long_description: "",
+              id: "",
+              description: "Description of criterion"
+            }
+          },
+          points_possible: "5",
+          free_form_criterion_comments: "0"
+        }.with_indifferent_access,
+        {
+          association_object: @assignment,
+          hide_score_total: "0",
+          use_for_grading: "1",
+          purpose: "grading",
+          update_if_existing:"1"
+        }.with_indifferent_access
+      )
+
+      expect(r_assessments.count).to eq 1
+      expect(r_assessments.first["rubric_assessment"]["rubric_association_id"]).to eq(r_association.id)
+    end
+
+
+  end
+
+  describe "active_rubric_association?" do
+    before(:once) do
+      @assessment = @association.assess({
+        :user => @student,
+        :assessor => @teacher,
+        :artifact => @assignment.find_or_create_submission(@student),
+        :assessment => {
+          :assessment_type => 'grading',
+          :criterion_crit1 => {
+            :points => 5,
+            :comments => "comments",
+          }
+        }
+      })
+    end
+
+    it "returns false if there is no rubric association" do
+      @assessment.update!(rubric_association: nil)
+      expect(@assessment).not_to be_active_rubric_association
+    end
+
+    it "returns false if the rubric association is soft-deleted" do
+      @association.destroy
+      expect(@assessment).not_to be_active_rubric_association
+    end
+
+    it "returns true if the rubric association exists and is active" do
+      expect(@assessment).to be_active_rubric_association
+    end
+  end
+
+  it { is_expected.to have_many(:learning_outcome_results).dependent(:destroy) }
 
   it "should htmlify the rating comments" do
     comment = "Hi, please see www.example.com.\n\nThanks."
@@ -215,6 +337,24 @@ describe RubricAssessment do
         @course.enroll_student(@student, enrollment_state: :active)
       end
 
+      it 'assessing a rubric with outcome criterion should increment datadog counter' do
+        expect(InstStatsd::Statsd).to receive(:increment).with("feature_flag_check", any_args).at_least(:once)
+        expect(InstStatsd::Statsd).to receive(:increment).with('learning_outcome_result.create')
+        @outcome.update!(data: nil)
+        criterion_id = "criterion_#{@rubric.data[0][:id]}".to_sym
+        @association.assess({
+          :user => @student,
+          :assessor => @teacher,
+          :artifact => @assignment.find_or_create_submission(@student),
+          :assessment => {
+            :assessment_type => 'grading',
+            criterion_id => {
+              :points => '3'
+            }
+          }
+        })
+      end
+
       it 'should use default ratings for scoring' do
         @outcome.update!(data: nil)
         criterion_id = "criterion_#{@rubric.data[0][:id]}".to_sym
@@ -287,6 +427,23 @@ describe RubricAssessment do
         expect(LearningOutcomeResult.last.hide_points).to be true
       end
 
+      it "should truncate the learning outcome result title to 250 characters" do
+        @association.update!(title: 'a'*255)
+        criterion_id = "criterion_#{@rubric.data[0][:id]}".to_sym
+        @association.assess({
+          :user => @student,
+          :assessor => @teacher,
+          :artifact => @assignment.find_or_create_submission(@student),
+          :assessment => {
+            :assessment_type => 'grading',
+            criterion_id => {
+              :points => "5"
+            }
+          }
+        })
+        expect(LearningOutcomeResult.last.title.length).to eq 250
+      end
+
       it "propagates hide_outcome_results value" do
         @association.update!(hide_outcome_results: true)
         criterion_id = "criterion_#{@rubric.data[0][:id]}".to_sym
@@ -302,6 +459,36 @@ describe RubricAssessment do
           }
         })
         expect(LearningOutcomeResult.last.hidden).to be true
+      end
+
+      it "restores a deleted result" do
+        criterion_id = "criterion_#{@rubric.data[0][:id]}".to_sym
+        assessment = @association.assess({
+          :user => @student,
+          :assessor => @teacher,
+          :artifact => @assignment.find_or_create_submission(@student),
+          :assessment => {
+            :assessment_type => 'grading',
+            criterion_id => {
+              :points => "3"
+            }
+          }
+        })
+        result = LearningOutcomeResult.last
+        result.destroy
+
+        assessment = @association.assess({
+          :user => @student,
+          :assessor => @teacher,
+          :artifact => @assignment.find_or_create_submission(@student),
+          :assessment => {
+            :assessment_type => 'grading',
+            criterion_id => {
+              :points => "3"
+            }
+          }
+        })
+        expect(result.reload).to be_active
       end
 
       it "does not update outcomes on a peer assessment" do
@@ -652,11 +839,42 @@ describe RubricAssessment do
       expect(@assessment.grants_right?(@user, :read)).to eq false
     end
 
-    it "grants :read to an account user with :view_all_grades but not :manage_courses" do
+    it 'grants :read to an account user with :view_all_grades but not :manage_courses' do
+      @account.disable_feature!(:granular_permissions_manage_courses)
       user_factory
-      role = custom_account_role('custom', :account => @account)
-      RoleOverride.create!(:context => @account, :permission => 'view_all_grades', :role => role, :enabled => true)
-      RoleOverride.create!(:context => @account, :permission => 'manage_courses', :role => role, :enabled => false)
+      role = custom_account_role('custom', account: @account)
+      RoleOverride.create!(
+        context: @account,
+        permission: 'view_all_grades',
+        role: role,
+        enabled: true
+      )
+      RoleOverride.create!(
+        context: @account,
+        permission: 'manage_courses',
+        role: role,
+        enabled: false
+      )
+      @account.account_users.create!(user: @user, role: role)
+      expect(@assessment.grants_right?(@user, :read)).to eq true
+    end
+
+    it 'grants :read to an account user with :view_all_grades but not :manage_courses_admin (granular permissions)' do
+      @account.enable_feature!(:granular_permissions_manage_courses)
+      user_factory
+      role = custom_account_role('custom', account: @account)
+      RoleOverride.create!(
+        context: @account,
+        permission: 'view_all_grades',
+        role: role,
+        enabled: true
+      )
+      RoleOverride.create!(
+        context: @account,
+        permission: 'manage_courses_admin',
+        role: role,
+        enabled: false
+      )
       @account.account_users.create!(user: @user, role: role)
       expect(@assessment.grants_right?(@user, :read)).to eq true
     end

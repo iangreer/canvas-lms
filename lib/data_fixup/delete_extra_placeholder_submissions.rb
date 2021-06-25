@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2017 - present Instructure, Inc.
 #
@@ -18,14 +20,9 @@
 module DataFixup::DeleteExtraPlaceholderSubmissions
   def self.run
     Course.find_ids_in_ranges do |min_id, max_id|
-      send_later_if_production_enqueue_args(
-        :run_for_course_range,
-        {
-          n_strand: ["DataFixup:DeleteExtraPlaceholderSubmissions", Shard.current.database_server.id],
-          priority: Delayed::MAX_PRIORITY
-        },
-        min_id, max_id
-      )
+      delay_if_production(n_strand: ["DataFixup:DeleteExtraPlaceholderSubmissions", Shard.current.database_server.id],
+          priority: Delayed::MAX_PRIORITY).
+        run_for_course_range(min_id, max_id)
     end
   end
 
@@ -38,7 +35,7 @@ module DataFixup::DeleteExtraPlaceholderSubmissions
 
     Course.where(:id => assignment_ids_by_course_id.keys).to_a.each do |course|
       course_assignment_ids = assignment_ids_by_course_id[course.id]
-      StudentEnrollment.where(course: course).in_batches do |relation|
+      StudentEnrollment.where(course: course).select(:user_id).in_batches(strategy: :cursor) do |relation|
         batch_student_ids = relation.pluck(:user_id)
         edd = EffectiveDueDates.for_course(course).filter_students_to(batch_student_ids)
         course_assignment_ids.each do |assignment_id|

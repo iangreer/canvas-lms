@@ -18,20 +18,20 @@
 
 import $ from 'jquery'
 import {extend, defer} from 'lodash'
-import RCELoader from 'jsx/shared/rce/serviceRCELoader'
-import SectionCollection from 'compiled/collections/SectionCollection'
-import Assignment from 'compiled/models/Assignment'
-import DueDateList from 'compiled/models/DueDateList'
-import Section from 'compiled/models/Section'
-import DiscussionTopic from 'compiled/models/DiscussionTopic'
-import Announcement from 'compiled/models/Announcement'
-import DueDateOverrideView from 'compiled/views/assignments/DueDateOverride'
-import EditView from 'compiled/views/DiscussionTopics/EditView'
-import AssignmentGroupCollection from 'compiled/collections/AssignmentGroupCollection'
-import GroupCategorySelector from 'compiled/views/assignments/GroupCategorySelector'
+import RCELoader from '@canvas/rce/serviceRCELoader'
+import SectionCollection from '@canvas/sections/backbone/collections/SectionCollection'
+import Assignment from '@canvas/assignments/backbone/models/Assignment.coffee'
+import DueDateList from '@canvas/due-dates/backbone/models/DueDateList'
+import Section from '@canvas/sections/backbone/models/Section.coffee'
+import DiscussionTopic from '@canvas/discussions/backbone/models/DiscussionTopic.coffee'
+import Announcement from '@canvas/discussions/backbone/models/Announcement.coffee'
+import DueDateOverrideView from '@canvas/due-dates'
+import EditView from 'ui/features/discussion_topic_edit/backbone/views/EditView.coffee'
+import AssignmentGroupCollection from '@canvas/assignments/backbone/collections/AssignmentGroupCollection'
+import GroupCategorySelector from '@canvas/groups/backbone/views/GroupCategorySelector.coffee'
 import fakeENV from 'helpers/fakeENV'
 import assertions from 'helpers/assertions'
-import RichContentEditor from 'jsx/shared/rce/RichContentEditor'
+import RichContentEditor from '@canvas/rce/RichContentEditor'
 import 'helpers/jquery.simulate'
 
 const currentOrigin = window.location.origin
@@ -371,6 +371,30 @@ QUnit.module(
     equal(Object.keys(errors)[0], 'specific_sections')
   })
 )
+
+QUnit.module('EditView - Usage Rights', {
+  setup() {
+    fakeENV.setup()
+    ENV.FEATURES.usage_rights_discussion_topics = true
+    ENV.USAGE_RIGHTS_REQUIRED = true
+    ENV.PERMISSIONS.manage_files = true
+    this.server = sinon.fakeServer.create({respondImmediately: true})
+    sandbox.fetch.mock('http://api/folders?contextType=user&contextId=1', 200)
+    sandbox.fetch.mock('path:/api/session', 200)
+  },
+  teardown() {
+    this.server.restore()
+    fakeENV.teardown()
+  },
+  editView() {
+    return editView.apply(this, arguments)
+  }
+})
+
+test('renders usage rights control', function() {
+  const view = this.editView({permissions: {CAN_ATTACH: true}})
+  equal(view.$el.find('#usage_rights_control').length, 1)
+})
 
 QUnit.module('EditView - ConditionalRelease', {
   setup() {

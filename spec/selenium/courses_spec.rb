@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2011 - present Instructure, Inc.
 #
@@ -16,9 +18,11 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 
 require File.expand_path(File.dirname(__FILE__) + '/common')
+require_relative "../helpers/k5_common"
 
 describe "courses" do
   include_context "in-process server selenium tests"
+  include K5Common
 
   context "as a teacher" do
 
@@ -103,6 +107,7 @@ describe "courses" do
       end
 
       it "should allow publishing/unpublishing with only change_course_state permission" do
+        @course.root_account.disable_feature!(:granular_permissions_manage_courses)
         @course.account.role_overrides.create!(:permission => :manage_course_content, :role => teacher_role, :enabled => false)
         @course.account.role_overrides.create!(:permission => :manage_courses, :role => teacher_role, :enabled => false)
 
@@ -113,8 +118,41 @@ describe "courses" do
         validate_action_button(:last, 'Published')
       end
 
+      it "should allow publishing/unpublishing with only manage_courses_publish permission (granular permissions)" do
+        @course.root_account.enable_feature!(:granular_permissions_manage_courses)
+        @course.account.role_overrides.create!(
+          permission: :manage_course_content,
+          role: teacher_role,
+          enabled: false
+        )
+        @course.account.role_overrides.create!(
+          permission: :manage_courses_publish,
+          role: teacher_role,
+          enabled: true
+        )
+
+        get "/courses/#{@course.id}"
+        expect_new_page_load { ff('#course_status_actions button').first.click }
+        validate_action_button(:first, 'Unpublished')
+        expect_new_page_load { ff('#course_status_actions button').last.click }
+        validate_action_button(:last, 'Published')
+      end
+
       it "should not allow publishing/unpublishing without change_course_state permission" do
+        @course.root_account.disable_feature!(:granular_permissions_manage_courses)
         @course.account.role_overrides.create!(:permission => :change_course_state, :role => teacher_role, :enabled => false)
+
+        get "/courses/#{@course.id}"
+        expect(f("#content")).not_to contain_css('#course_status_actions')
+      end
+
+      it "should not allow publishing/unpublishing without manage_courses_publish permission (granular permissions)" do
+        @course.root_account.disable_feature!(:granular_permissions_manage_courses)
+        @course.account.role_overrides.create!(
+          permission: :manage_courses_publish,
+          role: teacher_role,
+          enabled: false
+        )
 
         get "/courses/#{@course.id}"
         expect(f("#content")).not_to contain_css('#course_status_actions')
@@ -163,9 +201,9 @@ describe "courses" do
       get "/courses/#{course1.id}/grades/#{student.id}"
 
       select = f('#course_select_menu')
-      options = select.find_elements(:css, 'option')
+      options = INSTUI_Select_options(select)
       expect(options.length).to eq 2
-      wait_for_ajaximations
+
       click_option('#course_select_menu', course2.name)
       expect_new_page_load { f('#apply_select_menus').click }
       expect(f('#breadcrumbs .home + li a')).to include_text(course2.name)
@@ -338,25 +376,88 @@ describe "courses" do
     end
   end
 
-  it "should display announcements on course home page if enabled and is wiki" do
-    course_with_teacher_logged_in :active_all => true
+  context "announcements on course home" do
+    before :once do
+      course_with_teacher :active_all => true
 
-    text = "here's some html or whatever"
-    html = "<p>#{text}</p>"
-    @course.announcements.create!(:title => "something", :message => html)
+      @text = "here's some html or whatever"
+      @html = "<p>#{@text}</p>"
+      @course.announcements.create!(:title => "something", :message => @html)
 
-    @course.wiki_pages.create!(:title => 'blah').set_as_front_page!
+      @course.wiki_pages.create!(:title => 'blah').set_as_front_page!
 
-    @course.reload
-    @course.default_view = "wiki"
+      @course.reload
+      @course.default_view = "wiki"
+      @course.show_announcements_on_home_page = true
+      @course.home_page_announcement_limit = 5
+      @course.save!
+    end
+
+    before :each do
+      user_session @teacher
+    end
+
+    it "should be displayed if enabled and is wiki" do
+      get "/courses/#{@course.id}"
+
+      expect(f('#announcements_on_home_page')).to be_displayed
+      expect(f('#announcements_on_home_page')).to include_text(@text)
+      expect(f('#announcements_on_home_page')).to_not include_text(@html)
+    end
+
+    it "should not show on k5 subject even with setting on" do
+      toggle_k5_setting(@course.account)
+      get "/courses/#{@course.id}"
+
+      expect(f("#content")).not_to contain_css("#announcements_on_home_page")
+    end
+  end
+
+  it "should properly apply visible sections to announcement limit" do
+    course_with_teacher(active_course: true)
     @course.show_announcements_on_home_page = true
-    @course.home_page_announcement_limit = 5
+    @course.home_page_announcement_limit = 2
     @course.save!
 
-    get "/courses/#{@course.id}"
+    section1 = @course.course_sections.create!(name: 'Section 1')
+    section2 = @course.course_sections.create!(name: 'Section 2')
 
-    expect(f('#announcements_on_home_page')).to be_displayed
-    expect(f('#announcements_on_home_page')).to include_text(text)
-    expect(f('#announcements_on_home_page')).to_not include_text(html)
+    # first, create an announcement for the entire course
+    @course.announcements.create!(
+      user: @teacher,
+      message: 'hello, course!'
+    ).save!
+
+    # next, create 2 announcements outside student1's section
+    ['sec an 1', 'sec an 2'].each do |msg|
+      sec_an = @course.announcements.create!(
+        user: @teacher,
+        message: msg
+      )
+      sec_an.is_section_specific = true
+      sec_an.course_sections = [section2]
+      sec_an.save!
+    end
+
+    # last, create 1 announcement inside student1's section
+    a2 = @course.announcements.create!(
+      user: @teacher,
+      message: 'hello, section!'
+    )
+    a2.is_section_specific = true
+    a2.course_sections = [section1]
+    a2.save!
+
+    student1, _student2 = create_users(2, return_type: :record)
+    @course.enroll_student(student1, :enrollment_state => 'active')
+    student_in_section(section1, user: student1)
+    user_session student1
+    get "/courses/#{@course.id}"
+    wait_for(method: nil, timeout: 10) { ff('div.ic-announcement-row__content') }
+    contents = ff('div.ic-announcement-row__content')
+    # these expectations make sure pagination, scope filtration, and announcement ordering works
+    expect(contents.count).to eq 2
+    expect(contents[0].text).to eq 'hello, section!'
+    expect(contents[1].text).to eq 'hello, course!'
   end
 end

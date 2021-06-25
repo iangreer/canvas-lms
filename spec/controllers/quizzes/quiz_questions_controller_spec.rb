@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2011 - present Instructure, Inc.
 #
@@ -114,6 +116,36 @@ describe Quizzes::QuizQuestionsController do
         question_text: long_data
       }}, xhr: true
       expect(response.body).to match /max length is 16384/
+    end
+
+    it 'strips the origin from local URLs in answers' do
+      Account.site_admin.enable_feature!(:strip_origin_from_quiz_answer_file_references)
+      user_session(@teacher)
+      post 'create', params: {:course_id => @course.id, :quiz_id => @quiz, :question => {
+        :question_type => "multiple_choice_question",
+        :answers => {
+          '0' => {
+            :answer_html => "<a href='https://test.host:80/courses/#{@course.id}/files/27'>home</a>",
+            :comment_html => "<a href='https://test.host:80/courses/#{@course.id}/assignments'>home</a>",
+          }
+        }
+      }}
+      expect(assigns[:question].question_data[:answers][0][:html]).not_to match(/https:\/\/test.host/)
+      expect(assigns[:question].question_data[:answers][0][:html]).to match(/href=['"]\/courses\/#{@course.id}\/files\/27/)
+    end
+
+    it 'strips the origin from local URLs in answers when they are provided as an array' do
+      Account.site_admin.enable_feature!(:strip_origin_from_quiz_answer_file_references)
+      user_session(@teacher)
+      post 'create', params: {:course_id => @course.id, :quiz_id => @quiz, :question => {
+        :question_type => "multiple_choice_question",
+        :answers => [{
+          :answer_html => "<a href='https://test.host:80/courses/#{@course.id}/files/27'>home</a>",
+          :comment_html => "<a href='https://test.host:80/courses/#{@course.id}/assignments'>home</a>",
+        }]
+      }}
+      expect(assigns[:question].question_data[:answers][0][:html]).not_to match(/https:\/\/test.host/)
+      expect(assigns[:question].question_data[:answers][0][:html]).to match(/href=['"]\/courses\/#{@course.id}\/files\/27/)
     end
   end
 

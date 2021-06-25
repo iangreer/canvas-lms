@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2020 - present Instructure, Inc.
 #
@@ -200,6 +202,15 @@ module ConditionalRelease
           expect(detail).to have_key :score
           expect(detail).to have_key :trend
         end
+      end
+
+      it 'includes course_id for trigger_assignment' do
+        set_assignments
+        set_submissions [[@trigger, 50, 100]]
+        expected_assignment_set([@student_id], @as1)
+
+        details = Stats.student_details(@rule, @student_id).with_indifferent_access
+        expect(details.dig(:trigger_assignment, :assignment, :course_id)).to eq @course.id
       end
 
       context 'trends per assignment' do

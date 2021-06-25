@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2012 - present Instructure, Inc.
 #
@@ -34,7 +36,7 @@ module ActiveRecord
 
       it 'escapes special characters in the query' do
         %w(% _).each do |char|
-          expect(Base.wildcard_pattern('some' << char << 'string')).to include('some\\' << char << 'string')
+          expect(Base.wildcard_pattern('some' + char + 'string')).to include('some\\' + char + 'string')
         end
       end
 
@@ -122,22 +124,22 @@ module ActiveRecord
           expect do
             User.create!
             User.select(:name).find_in_batches do |batch|
-              User.connection.select_value("SELECT COUNT(*) FROM users_find_in_batches_temp_table_#{User.select(:name).to_sql.hash.abs.to_s(36)}")
+              User.connection.select_value("SELECT COUNT(*) FROM users_in_batches_temp_table_#{User.select(:name).to_sql.hash.abs.to_s(36)}")
             end
           end.to_not raise_error
         end
 
         it "should not use a temp table for a plain query" do
           User.create!
-          User.find_in_batches do |batch|
-            expect { User.connection.select_value("SELECT COUNT(*) FROM users_find_in_batches_temp_table_#{User.all.to_sql.hash.abs.to_s(36)}") }.to raise_error(ActiveRecord::StatementInvalid)
+          User.find_in_batches do
+            expect { User.connection.select_value("SELECT COUNT(*) FROM users_in_batches_temp_table_#{User.all.to_sql.hash.abs.to_s(36)}") }.to raise_error(ActiveRecord::StatementInvalid)
           end
         end
 
         it "should not use a temp table for a select with id" do
           User.create!
-          User.select(:id).find_in_batches do |batch|
-            expect { User.connection.select_value("SELECT COUNT(*) FROM users_find_in_batches_temp_table_#{User.select(:id).to_sql.hash.abs.to_s(36)}") }.to raise_error(ActiveRecord::StatementInvalid)
+          User.select(:id).find_in_batches do
+            expect { User.connection.select_value("SELECT COUNT(*) FROM users_in_batches_temp_table_#{User.select(:id).to_sql.hash.abs.to_s(36)}") }.to raise_error(ActiveRecord::StatementInvalid)
           end
         end
 
@@ -146,7 +148,7 @@ module ActiveRecord
           User.create!
           selectors.each do |selector|
             expect {
-              User.select(selector).find_in_batches(start: 0){|batch| }
+              User.select(selector).find_in_batches(strategy: :id) {}
             }.not_to raise_error
           end
         end
@@ -154,8 +156,8 @@ module ActiveRecord
         it "cleans up the temp table" do
           # two temp tables with the same name; if it didn't get cleaned up, it would error
           expect do
-            User.all.find_in_batches_with_temp_table {}
-            User.all.find_in_batches_with_temp_table {}
+            User.all.find_in_batches(strategy: :temp_table) {}
+            User.all.find_in_batches(strategy: :temp_table) {}
           end.to_not raise_error
         end
 
@@ -163,12 +165,12 @@ module ActiveRecord
           User.create!
           # two temp tables with the same name; if it didn't get cleaned up, it would error
           expect do
-            User.all.find_in_batches_with_temp_table do
+            User.all.find_in_batches(strategy: :temp_table) do
               raise ArgumentError
             end
           end.to raise_error(ArgumentError)
 
-          User.all.find_in_batches_with_temp_table {}
+          User.all.find_in_batches(strategy: :temp_table) {}
         end
 
         it "does not die with index error when table size is exactly batch size" do
@@ -176,7 +178,7 @@ module ActiveRecord
           User.delete_all
           user_count.times{ user_model }
           expect(User.count).to eq(user_count)
-          User.all.find_in_batches_with_temp_table(batch_size: user_count) {}
+          User.all.find_in_batches(strategy: :temp_table, batch_size: user_count) {}
         end
 
         it "doesnt obfuscate the error when it dies in a transaction" do
@@ -185,7 +187,7 @@ module ActiveRecord
           User.create!
           expect do
             ActiveRecord::Base.transaction do
-              User.all.find_in_batches_with_temp_table do |batch|
+              User.all.find_in_batches(strategy: :temp_table) do |batch|
                 # to force a foreign key error
                 Account.where(id: account).delete_all
               end
@@ -431,8 +433,12 @@ module ActiveRecord
         expect { User.connection.remove_foreign_key(:discussion_topics, :conversations, if_exists: true) }.not_to raise_exception
       end
 
+      it "remove_foreign_key allows column and if_exists" do
+        expect { User.connection.remove_foreign_key(:enrollments, column: :associated_user_id, if_exists: true) }.not_to raise_exception
+      end
+
       it "foreign_key_for prefers a 'bare' FK first" do
-        expect(User.connection.foreign_key_for(:enrollments, :users).column).to eq 'user_id'
+        expect(User.connection.foreign_key_for(:enrollments, to_table: :users).column).to eq 'user_id'
       end
 
       it "remove_index allows if_exists" do
@@ -444,5 +450,56 @@ module ActiveRecord
       end
 
     end
+  end
+
+  describe 'with_statement_timeout' do
+    it 'stops long-running queries' do
+      expect {
+        ActiveRecord::Base.with_statement_timeout(1_000) do
+          ActiveRecord::Base.connection.execute("SELECT pg_sleep(3)")
+        end
+      }.to raise_error(ActiveRecord::QueryTimeout)
+    end
+
+    it 'only accepts an integer timeout' do
+      expect {
+        ActiveRecord::Base.with_statement_timeout("1_000") do
+          ActiveRecord::Base.connection.execute("SELECT pg_sleep(3)")
+        end
+      }.to raise_error(ArgumentError)
+    end
+
+    it 're-raises other errors' do
+      expect {
+        ActiveRecord::Base.with_statement_timeout(1_000) do
+          ActiveRecord::Base.connection.execute("bad sql")
+        end
+      }.to raise_error(ActiveRecord::StatementInvalid)
+    end
+  end
+end
+
+describe ActiveRecord::Migration::CommandRecorder do
+  it "reverses if_exists/if_not_exists" do
+    recorder = ActiveRecord::Migration::CommandRecorder.new
+    r = recorder
+    recorder.revert do
+      r.add_column :accounts, :course_template_id, :integer, limit: 8, if_not_exists: true
+      r.add_foreign_key :accounts, :courses, column: :course_template_id, if_not_exists: true
+      r.add_index :accounts, :course_template_id, algorithm: :concurrently, if_not_exists: true
+
+      r.remove_column :courses, :id, :integer, limit: 8, if_exists: true
+      r.remove_foreign_key :enrollments, :users, if_exists: true
+      r.remove_index :accounts, :id, if_exists: true
+    end
+    expect(recorder.commands).to eq([
+      [:add_index, [:accounts, :id, { if_not_exists: true }]],
+      [:add_foreign_key, [:enrollments, :users, { if_not_exists: true }]],
+      [:add_column, [:courses, :id, :integer, { limit: 8, if_not_exists: true }], nil],
+
+      [:remove_index, [:accounts, { column: :course_template_id, algorithm: :concurrently, if_exists: true }]],
+      [:remove_foreign_key, [:accounts, :courses, { column: :course_template_id, if_exists: true }], nil],
+      [:remove_column, [:accounts, :course_template_id, :integer, { limit: 8, if_exists: true }], nil],
+    ])
   end
 end

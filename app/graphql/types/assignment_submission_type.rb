@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2019 - present Instructure, Inc.
 #
@@ -29,6 +31,7 @@ module Types
     online_text_entry
     online_upload
     online_url
+    student_annotation
     wiki_page
   ].to_set
 

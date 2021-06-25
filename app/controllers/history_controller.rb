@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2019 - present Instructure, Inc.
 #
@@ -103,11 +105,31 @@ class HistoryController < ApplicationController
                               api_v1_user_history_url(user_id: @user.id),
                               per_page: 100,
                               total_entries: nil)
-    page_views = page_views.to_a.select { |pv| pv.asset_user_access_id.present? && pv.real_user_id == @real_current_user&.id }
+    page_views = page_views.to_a.select { |pv| include_page_view?(pv) }
 
     auas = AssetUserAccess.where(id: page_views.map(&:asset_user_access_id)).preload(:context).to_a.index_by(&:id)
 
-    render json: page_views.map { |pv| history_entry_json(pv, auas[pv.asset_user_access_id], @current_user, session) }
+    render json: page_views.
+      select { |pv| auas.key?(pv.asset_user_access_id) }.
+      map { |pv| history_entry_json(pv, auas[pv.asset_user_access_id], @current_user, session) }
+  rescue PageView::Pv4Client::Pv4Timeout => e
+    Canvas::Errors.capture_exception(:pv4, e, :warn)
+    render json: { error: t("Page Views service is temporarily unavailable") }, status: :bad_gateway
+  end
+
+  def include_page_view?(pv)
+    return false unless pv.asset_user_access_id.present?
+
+    # activity done while masquerading is invisible
+    return false unless pv.real_user_id.nil?
+
+    url = URI.parse(pv.url)
+    return false if url.path =~ %r{^/api/v1/} # exclude API calls
+    return false if url.path =~ %r{/files/\d+/download} # exclude file downloads (not previews though)
+
+    true
+  rescue URI::InvalidURIError
+    false
   end
 end
 

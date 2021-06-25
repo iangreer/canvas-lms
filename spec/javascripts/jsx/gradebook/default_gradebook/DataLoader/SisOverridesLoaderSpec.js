@@ -16,10 +16,10 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import {createGradebook} from 'jsx/gradebook/default_gradebook/__tests__/GradebookSpecHelper'
-import SisOverridesLoader from 'jsx/gradebook/default_gradebook/DataLoader/SisOverridesLoader'
-import {NetworkFake, setPaginationLinkHeader} from 'jsx/shared/network/NetworkFake'
-import {RequestDispatch} from 'jsx/shared/network'
+import {createGradebook} from 'ui/features/gradebook/react/default_gradebook/__tests__/GradebookSpecHelper.js'
+import SisOverridesLoader from 'ui/features/gradebook/react/default_gradebook/DataLoader/SisOverridesLoader.js'
+import {NetworkFake, setPaginationLinkHeader} from '@canvas/network/NetworkFake/index'
+import {RequestDispatch} from '@canvas/network'
 
 /* eslint-disable no-async-promise-executor */
 QUnit.module('Gradebook > DataLoader > SisOverridesLoader', () => {
@@ -100,6 +100,13 @@ QUnit.module('Gradebook > DataLoader > SisOverridesLoader', () => {
       await network.allRequestsReady()
       const requests = getRequests()
       strictEqual(requests.length, 1)
+    })
+
+    test('excludes rubrics when requesting assignments', async () => {
+      loadOverrides()
+      await network.allRequestsReady()
+      const [{params}] = getRequests()
+      ok(params.exclude_response_fields.includes('rubric'))
     })
 
     QUnit.module('when sending the initial request', () => {

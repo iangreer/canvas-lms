@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2018 - present Instructure, Inc.
 #
@@ -47,7 +49,7 @@ describe 'Gradebook performance' do
     @course4 = @courses[3]
 
     # enroll a teacher in each course
-    @teacher = course_with_teacher(course: @courses.first, name: 'Teacher Boss1', active_user: true, active_enrollment: true).user
+    @teacher = course_with_teacher(course: @courses.first, name: 'Dedicated Teacher1', active_user: true, active_enrollment: true).user
     (1..3).each do |i|
       @courses[i].enroll_user(@teacher, 'TeacherEnrollment', allow_multiple_enrollments: true, enrollment_state: 'active')
     end

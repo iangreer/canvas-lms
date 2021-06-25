@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2011 - present Instructure, Inc.
 #
@@ -81,6 +83,7 @@ class Enrollment < ActiveRecord::Base
   after_save :update_assignment_overrides_if_needed
   after_create :needs_grading_count_updated, if: :active_student?
   after_update :needs_grading_count_updated, if: :active_student_changed?
+  after_commit :sync_microsoft_group
 
   attr_accessor :already_enrolled, :need_touch_user, :skip_touch_user
   scope :current, -> { joins(:course).where(QueryBuilder.new(:active).conditions).readonly(false) }
@@ -219,7 +222,7 @@ class Enrollment < ActiveRecord::Base
     if (self.just_created || self.saved_change_to_workflow_state? || @re_send_confirmation) && self.workflow_state == 'invited' && self.inactive? && self.available_at &&
         !self.self_enrolled && !(self.observer? && self.user.registered?)
       # this won't work if they invite them and then change the course/term/section dates _afterwards_ so hopefully people don't do that
-      self.send_later_enqueue_args(:re_send_confirmation_if_invited!, {:run_at => self.available_at, :singleton => "send_enrollment_invitations_#{global_id}"})
+      delay(run_at: self.available_at, singleton: "send_enrollment_invitations_#{global_id}").re_send_confirmation_if_invited!
     end
   end
 
@@ -306,21 +309,6 @@ class Enrollment < ActiveRecord::Base
 
   def self.valid_type?(type)
     SIS_TYPES.has_key?(type)
-  end
-
-  def self.types_with_indefinite_article
-    {
-      'TeacherEnrollment' => t('#enrollment.roles.teacher_with_indefinite_article', "A Teacher"),
-      'TaEnrollment' => t('#enrollment.roles.ta_with_indefinite_article', "A TA"),
-      'DesignerEnrollment' => t('#enrollment.roles.designer_with_indefinite_article', "A Designer"),
-      'StudentEnrollment' => t('#enrollment.roles.student_with_indefinite_article', "A Student"),
-      'StudentViewEnrollment' => t('#enrollment.roles.student_with_indefinite_article', "A Student"),
-      'ObserverEnrollment' => t('#enrollment.roles.observer_with_indefinite_article', "An Observer")
-    }
-  end
-
-  def self.type_with_indefinite_article(type)
-    types_with_indefinite_article[type] || types_with_indefinite_article['StudentEnrollment']
   end
 
   def reload(options = nil)
@@ -637,7 +625,7 @@ class Enrollment < ActiveRecord::Base
   end
 
   def accept(force = false)
-    Shackles.activate(:master) do
+    GuardRail.activate(:primary) do
       return false unless force || invited?
       if update_attribute(:workflow_state, 'active')
         if self.type == 'StudentEnrollment'
@@ -657,7 +645,7 @@ class Enrollment < ActiveRecord::Base
   def add_to_favorites_later
     if self.saved_change_to_workflow_state? && self.workflow_state == 'active'
       self.class.connection.after_transaction_commit do
-        self.send_later_if_production_enqueue_args(:add_to_favorites, :priority => Delayed::LOW_PRIORITY)
+        delay_if_production(priority: Delayed::LOW_PRIORITY).add_to_favorites
       end
     end
   end
@@ -721,7 +709,7 @@ class Enrollment < ActiveRecord::Base
   def create_enrollment_state
     self.enrollment_state =
       self.shard.activate do
-        Shackles.activate(:master) do
+        GuardRail.activate(:primary) do
           EnrollmentState.unique_constraint_retry do
             EnrollmentState.where(:enrollment_id => self).first_or_create
           end
@@ -873,7 +861,7 @@ class Enrollment < ActiveRecord::Base
     can_remove = [StudentEnrollment].include?(self.class) &&
       context.grants_right?(user, session, :manage_students) &&
       context.id == ((context.is_a? Course) ? self.course_id : self.course_section_id)
-    can_remove ||= context.grants_right?(user, session, :manage_admin_users)
+    can_remove || context.grants_right?(user, session, manage_admin_users_perm)
   end
 
   # Determine if a user has permissions to delete this enrollment.
@@ -886,11 +874,16 @@ class Enrollment < ActiveRecord::Base
   def can_be_deleted_by(user, context, session)
     return context.grants_right?(user, session, :use_student_view) if fake_student?
 
-    can_remove = [StudentEnrollment, ObserverEnrollment].include?(self.class) &&
-      context.grants_right?(user, session, :manage_students)
-    can_remove ||= context.grants_right?(user, session, :manage_admin_users) unless student?
-    can_remove &&= self.user_id != user.id || context.account.grants_right?(user, session, :manage_admin_users)
-    can_remove &&= context.id == ((context.is_a? Course) ? self.course_id : self.course_section_id)
+    can_remove = [StudentEnrollment, ObserverEnrollment].include?(self.class) && context.grants_right?(user, session, :manage_students)
+
+    if self.root_account.feature_enabled? :granular_permissions_manage_users
+      can_remove ||= can_delete_via_granular(user, session, context)
+      can_remove &&= self.user_id != user.id || context.account.grants_right?(user, session, :allow_course_admin_actions)
+    else
+      can_remove ||= context.grants_right?(user, session, :manage_admin_users) unless student?
+      can_remove &&= self.user_id != user.id || context.account.grants_right?(user, session, :manage_admin_users)
+    end
+    can_remove && context.id == (context.is_a?(Course) ? self.course_id : self.course_section_id)
   end
 
   def pending?
@@ -993,25 +986,18 @@ class Enrollment < ActiveRecord::Base
   # stale! And once you've added the call, add the condition to the comment
   # here for future enlightenment.
 
-  def self.recompute_final_score(*args)
-    GradeCalculator.recompute_final_score(*args)
+  def self.recompute_final_score(*args, **kwargs)
+    GradeCalculator.recompute_final_score(*args, **kwargs)
   end
 
   # This method is intended to not duplicate work for a single user.
-  def self.recompute_final_score_in_singleton(user_id, course_id, opts = {})
+  def self.recompute_final_score_in_singleton(user_id, course_id, **opts)
     # Guard against getting more than one user_id
     raise ArgumentError, "Cannot call with more than one user" if Array(user_id).size > 1
 
-    send_later_if_production_enqueue_args(
-      :recompute_final_score,
-      {
-        singleton: "Enrollment.recompute_final_score:#{user_id}:#{course_id}:#{opts[:grading_period_id]}",
-        max_attempts: 10
-      },
-      user_id,
-      course_id,
-      opts
-    )
+    delay_if_production(singleton: "Enrollment.recompute_final_score:#{user_id}:#{course_id}:#{opts[:grading_period_id]}",
+        max_attempts: 10).
+      recompute_final_score(user_id, course_id, **opts)
   end
 
   def self.recompute_due_dates_and_scores(user_id)
@@ -1120,7 +1106,7 @@ class Enrollment < ActiveRecord::Base
 
   def cached_score_or_grade(current_or_final, score_or_grade, posted_or_unposted, id_opts=nil)
     score = find_score(id_opts)
-    method = "#{current_or_final}_#{score_or_grade}"
+    method = +"#{current_or_final}_#{score_or_grade}"
     method.prepend("unposted_") if posted_or_unposted == :unposted
     score&.send(method)
   end
@@ -1219,7 +1205,7 @@ class Enrollment < ActiveRecord::Base
   end
 
   set_policy do
-    given {|user, session| self.course.grants_any_right?(user, session, :manage_students, :manage_admin_users, :read_roster)}
+    given { |user, session| self.course.grants_any_right?(user, session, :manage_students, manage_admin_users_perm, :read_roster) }
     can :read
 
     given { |user| self.user == user }
@@ -1480,14 +1466,9 @@ class Enrollment < ActiveRecord::Base
 
     # running in an n_strand to handle situations where a SIS import could
     # update a ton of enrollments from "deleted" to "completed".
-    send_later_if_production_enqueue_args(
-      :restore_submissions_and_scores_now,
-      {
-        n_strand: "Enrollment#restore_submissions_and_scores#{root_account.global_id}",
-        max_attempts: 1,
-        priority: Delayed::LOW_PRIORITY
-      }
-    )
+    delay_if_production(n_strand: "Enrollment#restore_submissions_and_scores#{root_account.global_id}",
+        priority: Delayed::LOW_PRIORITY).
+      restore_submissions_and_scores_now
   end
 
   def restore_submissions_and_scores_now
@@ -1545,6 +1526,17 @@ class Enrollment < ActiveRecord::Base
     ).where.not(id: id).where.not(workflow_state: :deleted)
   end
 
+  def manage_admin_users_perm
+    self.root_account.feature_enabled?(:granular_permissions_manage_users) ? :allow_course_admin_actions : :manage_admin_users
+  end
+
+  def can_delete_via_granular(user, session, context)
+    self.teacher? && context.grants_right?(user, session, :remove_teacher_from_course) ||
+    self.ta? && context.grants_right?(user, session, :remove_ta_from_course) ||
+    self.designer? && context.grants_right?(user, session, :remove_designer_from_course) ||
+    self.observer? && context.grants_right?(user, session, :remove_observer_from_course)
+  end
+
   def remove_user_as_final_grader?
     instructor? &&
       !other_enrollments_of_type(['TaEnrollment', 'TeacherEnrollment']).exists?
@@ -1568,5 +1560,12 @@ class Enrollment < ActiveRecord::Base
 
   def being_deleted?
     workflow_state == 'deleted' && workflow_state_before_last_save != 'deleted'
+  end
+
+  def sync_microsoft_group
+    return unless self.root_account.feature_enabled?(:microsoft_group_enrollments_syncing)
+    return unless self.root_account.settings[:microsoft_sync_enabled]
+
+    MicrosoftSync::Group.not_deleted.find_by(course_id: course_id)&.enqueue_future_partial_sync self
   end
 end

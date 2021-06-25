@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2014 - present Instructure, Inc.
 #
@@ -52,7 +54,7 @@ class Quizzes::QuizSubmission::QuestionReferenceDataFixer
 
     modified = false
 
-    Shackles.activate(:master) do
+    GuardRail.activate(:primary) do
       connection = quiz_submission.class.connection
       connection.transaction do
         Quizzes::QuizQuestion.transaction(requires_new: true) do

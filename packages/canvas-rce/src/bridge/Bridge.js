@@ -17,12 +17,12 @@
  */
 
 import K5Uploader from '@instructure/k5uploader'
-import {isAudioOrVideo, isImage, isVideo} from '../rce/plugins/shared/fileTypeUtils'
+import {fileEmbed} from '../common/mimeClass'
 
 /* eslint no-console: 0 */
 export default class Bridge {
   constructor() {
-    this.focusedEditor = null
+    this.focusedEditor = null // the RCEWrapper, not tinymce
     this.resolveEditorRendered = null
 
     this._editorRendered = new Promise(resolve => {
@@ -32,6 +32,7 @@ export default class Bridge {
     this.trayProps = new WeakMap()
     this._languages = []
     this._controller = {}
+    this._uploadMediaTranslations = null
   }
 
   get editorRendered() {
@@ -47,13 +48,21 @@ export default class Bridge {
   }
 
   focusEditor(editor) {
+    if (this.focusedEditor !== editor) {
+      this.hideTrays()
+    }
     this.focusedEditor = editor
   }
 
+  blurEditor(editor) {
+    if (this.focusedEditor === editor) {
+      this.hideTrays()
+      this.focusedEditor = null
+    }
+  }
+
   focusActiveEditor(skipFocus = false) {
-    this.getEditor()
-      .mceInstance()
-      .focus(skipFocus)
+    this.focusedEditor?.mceInstance?.()?.focus(skipFocus)
   }
 
   get mediaServerSession() {
@@ -79,6 +88,17 @@ export default class Bridge {
 
   set languages(langs) {
     this._languages = langs
+  }
+
+  // we have to defer importing mediaTranslations until they are asked for
+  // or they get imported before the locale has been setup and all the strings
+  // are in English
+  get uploadMediaTranslations() {
+    if (!this._uploadMediaTranslations) {
+      const module = require('../rce/plugins/instructure_record/mediaTranslations')
+      this._uploadMediaTranslations = module.default
+    }
+    return this._uploadMediaTranslations
   }
 
   detachEditor(editor) {
@@ -108,6 +128,12 @@ export default class Bridge {
 
   showTrayForPlugin(plugin, editorId) {
     this._controller[editorId]?.showTrayForPlugin(plugin)
+  }
+
+  hideTrays() {
+    Object.keys(this._controller).forEach(eid => {
+      this._controller[eid].hideTray(true)
+    })
   }
 
   existingContentToLink() {
@@ -144,10 +170,12 @@ export default class Bridge {
   // insertFileLink is called from the FileBrowser when All files is chosen
   // vs the above insertLink which is called from the other CanvasContentTray panels.
   insertFileLink = link => {
-    if (isImage(link.content_type)) {
+    const embedData = fileEmbed(link)
+
+    if (embedData.type === 'image') {
       return this.insertImage(link)
-    } else if (isAudioOrVideo(link.content_type)) {
-      link.embedded_iframe_url = link.href
+    } else if (embedData.type === 'video' || embedData.type === 'audio') {
+      link.embedded_iframe_url = link.embedded_iframe_url || link.href
       return this.embedMedia(link)
     }
     return this.insertLink(link)
@@ -201,7 +229,9 @@ export default class Bridge {
   }
 
   embedMedia = media => {
-    if (isVideo(media.type || media.content_type)) {
+    const embedData = fileEmbed(media)
+
+    if (embedData.type === 'video') {
       this.insertVideo(media)
     } else {
       this.insertAudio(media)

@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2011 - present Instructure, Inc.
 #
@@ -70,11 +72,11 @@ module Api::V1::Submission
     end
 
     if includes.include?("has_postable_comments")
-      hash["has_postable_comments"] = submission.submission_comments.select(&:hidden?).present?
+      hash["has_postable_comments"] = submission.submission_comments.any?(&:allows_posting_submission?)
     end
 
     if includes.include?("submission_comments")
-      published_comments = submission.comments_for(@current_user).published
+      published_comments = submission.comments_excluding_drafts_for(@current_user)
       hash['submission_comments'] = submission_comments_json(published_comments, current_user)
     end
 
@@ -118,6 +120,16 @@ module Api::V1::Submission
 
     if includes.include?('grading_status')
       hash['grading_status'] = submission.grading_status
+    end
+
+    if includes.include?('read_state')
+      # Save the current read state to the hash, then mark as read if needed
+      hash['read_state'] = submission.read_state(current_user)
+      if hash['read_state'] == 'unread'
+        GuardRail.activate(:primary) do
+          submission.mark_read(current_user)
+        end
+      end
     end
 
     if context.account_membership_allows(current_user)
@@ -201,7 +213,7 @@ module Api::V1::Submission
           enable_annotations: true,
           enrollment_type: user_type(context, user),
           include: includes,
-          moderated_grading_whitelist: attempt.moderated_grading_whitelist(user),
+          moderated_grading_allow_list: attempt.moderated_grading_allow_list(user),
           skip_permission_checks: true,
           submission_id: attempt.id
         }
@@ -311,10 +323,7 @@ module Api::V1::Submission
       attachment.locked = anonymous
       attachment.save!
 
-      ContentZipper.send_later_enqueue_args(:process_attachment, {
-        priority: Delayed::LOW_PRIORITY,
-        max_attempts: 1
-      }, attachment)
+      ContentZipper.delay(priority: Delayed::LOW_PRIORITY).process_attachment(attachment)
     end
 
     attachment

@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2011 - present Instructure, Inc.
 #
@@ -119,6 +121,12 @@ describe AssetUserAccess do
 
         expect(asset.icon).to eq 'icon-quiz'
       end
+
+      it "falls back with an unexpected asset_category" do
+        asset = AssetUserAccess.create asset_category: 'blah'
+        expect(asset.icon).to eq 'icon-question'
+        expect(asset.readable_category).to eq ''
+      end
     end
   end
 
@@ -133,8 +141,8 @@ describe AssetUserAccess do
       @asset.save!
     end
 
-    it "does NOT try to pick a root account id" do
-      expect(@asset.root_account_id).to be_nil
+    it "sets root account id to 0" do
+      expect(@asset.root_account_id).to eq(0)
     end
 
     it "can load by user context" do

@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 # Copyright (C) 2019 - present Instructure, Inc.
 #
 # This file is part of Canvas.
@@ -29,15 +31,7 @@ describe 'course wiki pages' do
       @page = @course.wiki_pages.create!(title: 'han')
     end
 
-    it "should not show the bulk delete button" do
-      @course.root_account.disable_feature!(:bulk_delete_pages)
-      visit_course_wiki_index_page(@course.id)
-
-      expect(wiki_page_body).not_to contain_css(delete_pages_btn_selector)
-    end
-
     it "should show the bulk delete button" do
-      @course.root_account.enable_feature!(:bulk_delete_pages)
       visit_course_wiki_index_page(@course.id)
 
       expect(bulk_delete_btn.attribute('disabled')).to eq('true')
@@ -45,7 +39,6 @@ describe 'course wiki pages' do
     end
 
     it "deletes selected page" do
-      @course.root_account.enable_feature!(:bulk_delete_pages)
       visit_course_wiki_index_page(@course.id)
 
       select_wiki_page_checkbox.click
@@ -69,9 +62,7 @@ describe 'course wiki pages' do
     end
 
     context 'With granular permission on' do
-      it_behaves_like "course_pages_granular_permissions" do
-        let(:set_granular_permission) { @course.root_account.enable_feature!(:granular_permissions_wiki_pages) }
-      end
+      it_behaves_like "course_pages_granular_permissions"
     end
   end
 end

@@ -16,31 +16,45 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import React, {useRef, useState} from 'react'
+import React, {useEffect, useRef, useState} from 'react'
 import ReactDOM from 'react-dom'
-import {arrayOf, bool, func, number, string} from 'prop-types'
+import {arrayOf, bool, func, number, oneOf, string} from 'prop-types'
 import {StyleSheet, css} from 'aphrodite'
 import keycode from 'keycode'
 import {Button} from '@instructure/ui-buttons'
-import {Flex, View} from '@instructure/ui-layout'
-import {ScreenReaderContent} from '@instructure/ui-a11y'
+import {Flex} from '@instructure/ui-flex'
+import {View} from '@instructure/ui-view'
+import {ScreenReaderContent} from '@instructure/ui-a11y-content'
 
-import {Text} from '@instructure/ui-elements'
+import {Text} from '@instructure/ui-text'
 import {SVGIcon} from '@instructure/ui-svg-images'
-import {IconA11yLine, IconKeyboardShortcutsLine, IconMiniArrowEndLine} from '@instructure/ui-icons'
+import {
+  IconA11yLine,
+  IconKeyboardShortcutsLine,
+  IconMiniArrowEndLine,
+  IconFullScreenLine
+} from '@instructure/ui-icons'
 import formatMessage from '../format-message'
 import ResizeHandle from './ResizeHandle'
+
+export const WYSIWYG_VIEW = 'WYSIWYG'
+export const PRETTY_HTML_EDITOR_VIEW = 'PRETTY'
+export const RAW_HTML_EDITOR_VIEW = 'RAW'
 
 // I don't know why eslint is reporting this, the props are all used
 /* eslint-disable react/no-unused-prop-types */
 StatusBar.propTypes = {
-  onToggleHtml: func.isRequired,
+  onChangeView: func.isRequired,
   path: arrayOf(string),
   wordCount: number,
-  isHtmlView: bool,
+  editorView: oneOf([WYSIWYG_VIEW, PRETTY_HTML_EDITOR_VIEW, RAW_HTML_EDITOR_VIEW]),
   onResize: func, // react-draggable onDrag handler.
   onKBShortcutModalOpen: func.isRequired,
-  onA11yChecker: func.isRequired
+  onA11yChecker: func.isRequired,
+  onFullscreen: func.isRequired,
+  use_rce_pretty_html_editor: bool,
+  preferredHtmlEditor: oneOf([PRETTY_HTML_EDITOR_VIEW, RAW_HTML_EDITOR_VIEW]),
+  readOnly: bool
 }
 
 /* eslint-enable react/no-unused-prop-types */
@@ -65,7 +79,7 @@ function emptyTagIcon() {
   return (
     <SVGIcon viewBox="0 0 24 24" fontSize="24px">
       <g role="presentation">
-        <text textAnchor="start" x="0" y="18px" fontSize="16">
+        <text textAnchor="middle" x="12px" y="18px" fontSize="16">
           &lt;/&gt;
         </text>
       </g>
@@ -80,72 +94,149 @@ function findFocusable(el) {
 }
 
 export default function StatusBar(props) {
-  const [focusedIndex, setFocusedIndex] = useState(0)
+  const [focusedBtnId, setFocusedBtnId] = useState(null)
+  const [includeEdtrDesc, setIncludeEdtrDesc] = useState(false)
   const statusBarRef = useRef(null)
 
-  function handleKey(event) {
+  useEffect(() => {
     const buttons = findFocusable(statusBarRef.current)
-    if (event.keyCode === keycode.codes.right) {
-      buttons[(focusedIndex + 1) % buttons.length].focus()
-    } else if (event.keyCode === keycode.codes.left) {
-      buttons[(focusedIndex + buttons.length - 1) % buttons.length].focus()
+    setFocusedBtnId(buttons[0].getAttribute('data-btn-id'))
+    buttons[0].setAttribute('tabIndex', '0')
+  }, [])
+
+  useEffect(() => {
+    // the kbshortcut and a11y checker buttons are hidden when in html view
+    // move focus to the next button over.
+    if (isHtmlView() && /rce-kbshortcut-btn|rce-a11y-btn/.test(focusedBtnId)) {
+      setFocusedBtnId('rce-edit-btn')
     }
+    // adding a delay before including the HTML Editor description to wait the focus moves to the RCE
+    // and prevent JAWS from reading the aria-describedby element when switching back to RCE view
+    setTimeout(() => {
+      setIncludeEdtrDesc(props.use_rce_pretty_html_editor && !isHtmlView())
+    }, 100)
+  }, [props.editorView]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  function preferredHtmlEditor() {
+    if (props.preferredHtmlEditor) return props.preferredHtmlEditor
+    return props.use_rce_pretty_html_editor ? PRETTY_HTML_EDITOR_VIEW : RAW_HTML_EDITOR_VIEW
   }
 
-  function handleFocus(event) {
-    // we hide a couple buttons in html view
-    const offset = props.isHtmlView ? 2 : 0
-    const buttons = findFocusable(statusBarRef.current)
-    const fidx = buttons.findIndex(b => b === event.target)
-    setFocusedIndex(fidx + offset)
+  function getHtmlEditorView(event) {
+    if (!props.use_rce_pretty_html_editor) return RAW_HTML_EDITOR_VIEW
+    if (!event.shiftKey) return preferredHtmlEditor()
+    return preferredHtmlEditor() === RAW_HTML_EDITOR_VIEW
+      ? PRETTY_HTML_EDITOR_VIEW
+      : RAW_HTML_EDITOR_VIEW
   }
 
-  function tabIndexForPosition(itemIndex) {
-    const tabindex = focusedIndex === itemIndex ? '0' : '-1'
+  function handleKey(event) {
+    const buttons = findFocusable(statusBarRef.current).filter(b => !b.disabled)
+    const focusedIndex = buttons.findIndex(b => b.getAttribute('data-btn-id') === focusedBtnId)
+    let newFocusedIndex
+    if (event.keyCode === keycode.codes.right) {
+      newFocusedIndex = (focusedIndex + 1) % buttons.length
+    } else if (event.keyCode === keycode.codes.left) {
+      newFocusedIndex = (focusedIndex + buttons.length - 1) % buttons.length
+    } else {
+      return
+    }
+
+    buttons[newFocusedIndex].focus()
+    setFocusedBtnId(buttons[newFocusedIndex].getAttribute('data-btn-id'))
+  }
+
+  function isHtmlView() {
+    return props.editorView !== WYSIWYG_VIEW
+  }
+
+  function tabIndexForBtn(itemId) {
+    const tabindex = focusedBtnId === itemId ? '0' : '-1'
     return tabindex
   }
 
   function renderPath() {
-    if (props.isHtmlView) return null
     return <View data-testid="whole-status-bar-path">{renderPathString(props)}</View>
   }
 
-  function renderIconButtons() {
-    if (props.isHtmlView) return null
-    const kbshortcut = formatMessage('View keyboard shortcuts')
-    const a11y = formatMessage('Accessibility Checker')
+  function renderHtmlEditorMessage() {
+    if (!props.use_rce_pretty_html_editor) return null
+
+    const message =
+      props.editorView === PRETTY_HTML_EDITOR_VIEW
+        ? formatMessage(
+            'Sadly, the pretty HTML editor is not keyboard accessible. Access the raw HTML editor here.'
+          )
+        : formatMessage('Access the pretty HTML editor')
+    const label =
+      props.editorView === PRETTY_HTML_EDITOR_VIEW
+        ? formatMessage('Raw HTML Editor')
+        : formatMessage('Pretty HTML Editor')
     return (
-      <View display="inline-block" padding="0 x-small">
+      <View data-testid="html-editor-message">
         <Button
+          data-btn-id="rce-editormessage-btn"
           variant="link"
-          icon={IconKeyboardShortcutsLine}
-          title={kbshortcut}
-          tabIndex={tabIndexForPosition(0)}
-          onClick={event => {
-            event.target.focus() // FF doesn't focus buttons on click
-            props.onKBShortcutModalOpen()
-          }}
-        >
-          <ScreenReaderContent>{kbshortcut}</ScreenReaderContent>
-        </Button>
-        <Button
-          variant="link"
-          icon={IconA11yLine}
-          title={a11y}
-          tabIndex={tabIndexForPosition(1)}
+          title={message}
+          tabIndex={tabIndexForBtn('rce-editormessage-btn')}
           onClick={event => {
             event.target.focus()
-            props.onA11yChecker()
+            props.onChangeView(
+              props.editorView === PRETTY_HTML_EDITOR_VIEW
+                ? RAW_HTML_EDITOR_VIEW
+                : PRETTY_HTML_EDITOR_VIEW
+            )
           }}
+          onFocus={() => setFocusedBtnId('rce-editormessage-btn')}
         >
-          <ScreenReaderContent>{a11y}</ScreenReaderContent>
+          {label}
         </Button>
       </View>
     )
   }
 
+  function renderIconButtons() {
+    if (isHtmlView()) return null
+    const kbshortcut = formatMessage('View keyboard shortcuts')
+    const a11y = formatMessage('Accessibility Checker')
+    return (
+      <View display="inline-block" padding="0 x-small">
+        <Button
+          data-btn-id="rce-kbshortcut-btn"
+          variant="link"
+          icon={IconKeyboardShortcutsLine}
+          title={kbshortcut}
+          tabIndex={tabIndexForBtn('rce-kbshortcut-btn')}
+          onClick={event => {
+            event.target.focus() // FF doesn't focus buttons on click
+            props.onKBShortcutModalOpen()
+          }}
+          onFocus={() => setFocusedBtnId('rce-kbshortcut-btn')}
+        >
+          <ScreenReaderContent>{kbshortcut}</ScreenReaderContent>
+        </Button>
+        {props.readOnly || (
+          <Button
+            data-btn-id="rce-a11y-btn"
+            variant="link"
+            icon={IconA11yLine}
+            title={a11y}
+            tabIndex={tabIndexForBtn('rce-a11y-btn')}
+            onClick={event => {
+              event.target.focus()
+              props.onA11yChecker()
+            }}
+            onFocus={() => setFocusedBtnId('rce-a11y-btn')}
+          >
+            <ScreenReaderContent>{a11y}</ScreenReaderContent>
+          </Button>
+        )}
+      </View>
+    )
+  }
+
   function renderWordCount() {
-    if (props.isHtmlView) return null
+    if (isHtmlView()) return null
     const wordCount = formatMessage(
       `{count, plural,
          =0 {0 words}
@@ -161,33 +252,103 @@ export default function StatusBar(props) {
     )
   }
 
+  function descMsg() {
+    return preferredHtmlEditor() === RAW_HTML_EDITOR_VIEW
+      ? formatMessage('Shift-O to open the pretty html editor.')
+      : formatMessage(
+          'The pretty html editor is not keyboard accessible. Press Shift O to open the raw html editor.'
+        )
+  }
+
   function renderToggleHtml() {
-    const toggleToHtml = formatMessage('Switch to raw html editor')
-    const toggleToRich = formatMessage('Switch to rich text editor')
-    const toggleText = props.isHtmlView ? toggleToRich : toggleToHtml
+    const toggleToHtml = formatMessage('Switch to the html editor')
+    const toggleToRich = formatMessage('Switch to the rich text editor')
+    const toggleToHtmlTip = props.use_rce_pretty_html_editor
+      ? formatMessage('Click or shift-click for the html editor.')
+      : toggleToHtml
+    const descText = isHtmlView() ? toggleToRich : toggleToHtml
+    const titleText = isHtmlView() ? toggleToRich : toggleToHtmlTip
+
     return (
       <View display="inline-block" padding="0 0 0 x-small">
-        <Button
-          variant="link"
-          icon={emptyTagIcon()}
-          onClick={event => {
-            event.target.focus()
-            props.onToggleHtml()
-          }}
-          title={toggleText}
-          tabIndex={tabIndexForPosition(2)}
-        >
-          <ScreenReaderContent>{toggleText}</ScreenReaderContent>
-        </Button>
+        {props.readOnly || (
+          <Button
+            data-btn-id="rce-edit-btn"
+            variant="link"
+            icon={emptyTagIcon()}
+            onClick={event => {
+              props.onChangeView(isHtmlView() ? WYSIWYG_VIEW : getHtmlEditorView(event))
+            }}
+            onKeyUp={event => {
+              if (
+                props.use_rce_pretty_html_editor &&
+                props.editorView === WYSIWYG_VIEW &&
+                event.shiftKey &&
+                event.keyCode === 79
+              ) {
+                const html_view =
+                  preferredHtmlEditor() === RAW_HTML_EDITOR_VIEW
+                    ? PRETTY_HTML_EDITOR_VIEW
+                    : RAW_HTML_EDITOR_VIEW
+                props.onChangeView(html_view)
+              }
+            }}
+            onFocus={() => setFocusedBtnId('rce-edit-btn')}
+            title={titleText}
+            tabIndex={tabIndexForBtn('rce-edit-btn')}
+            aria-describedby={includeEdtrDesc ? 'edit-button-desc' : undefined}
+          >
+            <ScreenReaderContent>{descText}</ScreenReaderContent>
+          </Button>
+        )}
+        {includeEdtrDesc && (
+          <span style={{display: 'none'}} id="edit-button-desc">
+            {descMsg()}
+          </span>
+        )}
       </View>
     )
   }
 
-  function renderResizeHandle() {
-    return <ResizeHandle onDrag={props.onResize} tabIndex={tabIndexForPosition(3)} />
+  function renderFullscreen() {
+    if (props.readOnly) return null
+    if (props.editorView === RAW_HTML_EDITOR_VIEW && !('requestFullscreen' in document.body)) {
+      // this is safari, which refuses to fullscreen a textarea
+      return null
+    }
+    const fullscreen = formatMessage('Fullscreen')
+    return (
+      <Button
+        data-btn-id="rce-fullscreen-btn"
+        variant="link"
+        icon={IconFullScreenLine}
+        title={fullscreen}
+        tabIndex={tabIndexForBtn('rce-fullscreen-btn')}
+        onClick={event => {
+          event.target.focus()
+          props.onFullscreen()
+        }}
+        onFocus={() => setFocusedBtnId('rce-fullscreen-btn')}
+      >
+        <ScreenReaderContent>{fullscreen}</ScreenReaderContent>
+      </Button>
+    )
   }
 
-  const flexJustify = props.isHtmlView ? 'end' : 'start'
+  function renderResizeHandle() {
+    return (
+      <ResizeHandle
+        data-btn-id="rce-resize-handle"
+        onDrag={props.onResize}
+        tabIndex={tabIndexForBtn('rce-resize-handle')}
+        onFocus={() => {
+          setFocusedBtnId('rce-resize-handle')
+        }}
+      />
+    )
+  }
+
+  const flexJustify = isHtmlView() ? 'end' : 'start'
   return (
     <Flex
       margin="x-small 0 x-small x-small"
@@ -195,9 +356,8 @@ export default function StatusBar(props) {
       justifyItems={flexJustify}
       ref={statusBarRef}
       onKeyDown={handleKey}
-      onFocus={handleFocus}
     >
-      <Flex.Item grow>{renderPath()}</Flex.Item>
+      <Flex.Item grow>{isHtmlView() ? renderHtmlEditorMessage() : renderPath()}</Flex.Item>
 
       <Flex.Item role="toolbar" title={formatMessage('Editor Statusbar')}>
         {renderIconButtons()}
@@ -205,6 +365,7 @@ export default function StatusBar(props) {
         {renderWordCount()}
         <div className={css(styles.separator)} />
         {renderToggleHtml()}
+        {renderFullscreen()}
         {renderResizeHandle()}
       </Flex.Item>
     </Flex>

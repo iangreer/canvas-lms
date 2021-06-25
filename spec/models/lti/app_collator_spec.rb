@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2014 - present Instructure, Inc.
 #
@@ -93,7 +95,8 @@ module Lti
                                     tool_configuration: nil,
                                     reregistration_url: nil,
                                     lti_version: '1.1',
-                                    deployment_id: external_tool.deployment_id
+                                    deployment_id: external_tool.deployment_id,
+                                    editor_button_settings: external_tool.settings[:editor_button]
                                   })
       end
 
@@ -119,7 +122,8 @@ module Lti
                                     tool_configuration: nil,
                                     reregistration_url: nil,
                                     lti_version: '1.3',
-                                    deployment_id: external_tool.deployment_id
+                                    deployment_id: external_tool.deployment_id,
+                                    editor_button_settings: external_tool.settings[:editor_button]
                                   })
       end
 

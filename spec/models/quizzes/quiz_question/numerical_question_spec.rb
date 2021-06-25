@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2013 - present Instructure, Inc.
 #
@@ -44,6 +46,12 @@ describe Quizzes::QuizQuestion::NumericalQuestion do
       I18n.locale = 'fr'
       expect(question.i18n_decimal('1 234,56')).to eq BigDecimal('1234.56')
       expect(question.i18n_decimal('1234,56')).to eq BigDecimal('1234.56')
+    end
+    it 'works for inputs of type Integer' do
+      expect(question.i18n_decimal(1234)).to eq BigDecimal('1234')
+    end
+    it 'works for inputs of type Float' do
+      expect(question.i18n_decimal(123456e-2)).to eq BigDecimal('1234.56')
     end
   end
 

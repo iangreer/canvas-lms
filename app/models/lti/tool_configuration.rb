@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2018 - present Instructure, Inc.
 #
@@ -60,6 +62,10 @@ module Lti
                    tool_configuration_params[:settings]&.try(:to_unsafe_hash) || tool_configuration_params[:settings]
                  end
 
+      # try to recover the target_link_url from the tool configuration and use
+      # it into developer_key.redirect_uris
+      redirect_uris = settings[:target_link_uri]
+
       raise_error(:configuration, "Configuration must be present") if settings.blank?
       self.transaction do
         dk = DeveloperKey.create!(
@@ -67,6 +73,7 @@ module Lti
           is_lti_key: true,
           public_jwk_url: settings[:public_jwk_url],
           public_jwk: settings[:public_jwk],
+          redirect_uris: redirect_uris || [],
           scopes: settings[:scopes] || []
         )
         self.create!(

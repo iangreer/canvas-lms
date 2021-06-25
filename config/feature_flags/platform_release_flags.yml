@@ -1,11 +1,4 @@
 ---
-system_and_user_generated_event_types:
-  state: hidden
-  display_name: System- and User-Generated Events
-  description: |-
-    Differentiate between system- and user-generated live events
-    in the Canvas Data Services tool
-  applies_to: SiteAdmin
 live_event_subscription_webhooks:
   state: hidden
   display_name: Live Event Subscription Webhooks
@@ -25,13 +18,6 @@ developer_key_support_includes:
   description: |-
     Provides a flag on the Devloper Key to support Include Parameters on API requests
   applies_to: SiteAdmin
-process_multiple_content_items_modules_index:
-  state: hidden
-  display_name: Process multiple content items from course modules page
-  description: |-
-    If enabled, Canvas will allow tools to return multiple content items
-    in a single request at the course modules page
-  applies_to: SiteAdmin
 site_admin_keys_only:
   state: hidden
   display_name: Only show site admin keys in the site admin UI
@@ -42,19 +28,6 @@ site_admin_keys_only:
     as the site admin account. Behavior in other instances
     already behaved in this way.
   applies_to: SiteAdmin
-plagiarism_tool_subscriptions:
-  state: hidden
-  display_name: Create live event subscriptions on ToolProxy
-  description: |-
-    If enabled, when an Lti::ToolProxy is created, it will
-    create the live event subscription directly on the tool
-    instead of the assignment. This will cause events to be
-    duplicated unless the subscriptions on the associated
-    plagiarism assignments are deleted.
-  applies_to: RootAccount
-  environments:
-    ci:
-      state: on
 use_oembed_token:
   state: hidden
   display_name: Require signed token for oEmbed
@@ -63,3 +36,17 @@ use_oembed_token:
     tool-generated token to verify the origin
     of an oEmbed resource request.
   applies_to: SiteAdmin
+disable_graphql_authentication:
+  state: hidden
+  display_name: Disable authentication for GraphQL
+  description: |-
+    If enabled, GraphQL queries will not require
+    users to be signed in or use an access token.
+  applies_to: SiteAdmin
+microsoft_group_enrollments_syncing:
+  state: hidden
+  display_name: Microsoft Group enrollment syncing
+  description: |-
+    If enabled, syncing course enrollments to Microsoft Groups will be
+    available. Account admins may enable this in account settings.
+  applies_to: RootAccount

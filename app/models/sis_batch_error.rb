@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2018 - present Instructure, Inc.
 #
@@ -25,8 +27,7 @@ class SisBatchError < ActiveRecord::Base
   scope :warnings, -> {where(failure: false)}
 
   def self.cleanup_old_errors
-    cleanup = expired_errors.limit(10_000)
-    while cleanup.delete_all > 0; end
+    expired_errors.in_batches(of: 10_000).delete_all
   end
 
   def description

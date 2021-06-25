@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2018 - present Instructure, Inc.
 #
@@ -99,7 +101,7 @@ describe Csp do
 
     it "should inherit from account" do
       @root.enable_csp!
-      expect(@course.csp_enabled?).to eq true
+      expect(@course.reload.csp_enabled?).to eq true
     end
 
     it "should be disabled if set on course" do

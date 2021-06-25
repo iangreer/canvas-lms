@@ -23,6 +23,7 @@ import {isOKToLink} from '../../contentInsertionUtils'
 
 const COURSE_PLUGIN_KEY = 'course_documents'
 const USER_PLUGIN_KEY = 'user_documents'
+const GROUP_PLUGIN_KEY = 'group_documents'
 
 function getMenuItems(ed) {
   const contextType = ed.settings.canvas_rce_user_context.type
@@ -36,6 +37,11 @@ function getMenuItems(ed) {
     items.push({
       text: formatMessage('Course Documents'),
       value: 'instructure_course_document'
+    })
+  } else if (contextType === 'group') {
+    items.push({
+      text: formatMessage('Group Documents'),
+      value: 'instructure_group_document'
     })
   }
   items.push({
@@ -58,6 +64,10 @@ function doMenuItem(ed, value) {
       ed.focus(true)
       ed.execCommand('instructureTrayForDocuments', false, USER_PLUGIN_KEY)
       break
+    case 'instructure_group_document':
+      ed.focus(true)
+      ed.execCommand('instructureTrayForDocuments', false, GROUP_PLUGIN_KEY)
+      break
   }
 }
 
@@ -78,7 +88,11 @@ tinymce.create('tinymce.plugins.InstructureDocumentsPlugin', {
           return {
             type: 'menuitem',
             text: item.text,
-            onAction: () => doMenuItem(ed, item.value)
+            onAction: () => doMenuItem(ed, item.value),
+            onSetup: api => {
+              api.setDisabled(!isOKToLink(ed.selection.getContent()))
+              return () => {}
+            }
           }
         })
     })
@@ -97,14 +111,17 @@ tinymce.create('tinymce.plugins.InstructureDocumentsPlugin', {
         })
         callback(items)
       },
-      onAction() {
-        doMenuItem(ed, 'instructure_upload_document')
+      onAction(api) {
+        if (!api.isDisabled()) {
+          doMenuItem(ed, 'instructure_upload_document')
+        }
       },
       onItemAction: (_splitButtonApi, value) => doMenuItem(ed, value),
       onSetup(api) {
         function handleNodeChange(_e) {
           api.setDisabled(!isOKToLink(ed.selection.getContent()))
         }
+        setTimeout(handleNodeChange)
         ed.on('NodeChange', handleNodeChange)
         return () => {
           ed.off('NodeChange', handleNodeChange)

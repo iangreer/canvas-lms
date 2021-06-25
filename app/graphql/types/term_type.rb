@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2018 - present Instructure, Inc.
 #
@@ -37,7 +39,8 @@ module Types
     end
     def courses_connection
       load_association(:root_account).then do |account|
-        next unless account.grants_any_right?(current_user, :manage_courses, :manage_account_settings)
+        next unless account.grants_right?(current_user, :read_course_list)
+
         term.courses
       end
     end

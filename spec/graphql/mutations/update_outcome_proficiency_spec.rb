@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2020 - present Instructure, Inc.
 #
@@ -102,7 +104,7 @@ describe Mutations::UpdateOutcomeProficiency do
       expect(errors[0]['message']).to match(/#{message}/)
     end
 
-    it "requires manage_outcomes permission" do
+    it "requires manage_proficiency_scales permission" do
       result = execute_with_input(good_query, user_executing: @student)
       expect_error(result, 'insufficient permission')
     end

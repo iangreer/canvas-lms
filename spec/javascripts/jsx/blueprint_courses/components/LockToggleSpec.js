@@ -18,7 +18,7 @@
 
 import React from 'react'
 import * as enzyme from 'enzyme'
-import LockToggle from 'jsx/blueprint_courses/components/LockToggle'
+import LockToggle from '@canvas/blueprint-courses/react/components/LockManager/LockToggle'
 
 QUnit.module('LockToggle component')
 
@@ -28,7 +28,7 @@ const defaultProps = () => ({
 })
 
 test('renders the LockToggle component', () => {
-  const tree = enzyme.shallow(<LockToggle {...defaultProps()} />)
+  const tree = enzyme.mount(<LockToggle {...defaultProps()} />)
   const node = tree.find('.bpc-lock-toggle')
   ok(node.exists())
 })
@@ -52,7 +52,7 @@ test('does not render a button when LockToggle is not toggleable', () => {
 test('renders a locked icon when LockToggle is locked', () => {
   const props = defaultProps()
   props.isLocked = true
-  const tree = enzyme.shallow(<LockToggle {...props} />)
+  const tree = enzyme.mount(<LockToggle {...props} />)
   const node = tree.find('IconBlueprintLockSolid')
   ok(node.exists())
 })
@@ -60,7 +60,7 @@ test('renders a locked icon when LockToggle is locked', () => {
 test('renders an unlocked icon when LockToggle is unlocked', () => {
   const props = defaultProps()
   props.isLocked = false
-  const tree = enzyme.shallow(<LockToggle {...props} />)
+  const tree = enzyme.mount(<LockToggle {...props} />)
   const node = tree.find('IconBlueprintSolid')
   ok(node.exists())
 })

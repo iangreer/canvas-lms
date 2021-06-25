@@ -17,12 +17,14 @@
  */
 
 import assert from 'assert'
+import moxios from 'moxios'
 import sinon from 'sinon'
 import * as actions from '../../../src/sidebar/actions/upload'
 import * as filesActions from '../../../src/sidebar/actions/files'
 import * as imagesActions from '../../../src/sidebar/actions/images'
 import {spiedStore} from './utils'
 import Bridge from '../../../src/bridge'
+import K5Uploader from '@instructure/k5uploader'
 
 const fakeFileReader = {
   readAsDataURL() {
@@ -33,7 +35,7 @@ const fakeFileReader = {
 
 describe('Upload data actions', () => {
   const results = {id: 47}
-  const file = {url: 'fileurl', thumbnail_url: 'thumbnailurl'}
+  const file = {url: 'http://canvas.test/files/17/download', thumbnail_url: 'thumbnailurl'}
   const successSource = {
     fetchFolders() {
       return Promise.resolve({
@@ -74,19 +76,21 @@ describe('Upload data actions', () => {
   }
 
   beforeEach(() => {
+    Bridge.focusEditor(null)
     successSource.uploadFRD.resetHistory()
     successSource.uploadFRD.returns(Promise.resolve(results))
     successSource.setUsageRights.resetHistory()
   })
 
   const defaults = {
+    host: 'http://host:port',
     jwt: 'theJWT',
     source: successSource
   }
 
   function setupState(props) {
-    const {jwt, source} = {...defaults, ...props}
-    return {jwt, source}
+    const {host, jwt, source} = {...defaults, ...props}
+    return {host, jwt, source}
   }
 
   describe('fetchFolders', () => {
@@ -205,6 +209,7 @@ describe('Upload data actions', () => {
         type: 'image/png'
       }
     }
+
     it('dispatches a uploadPreflight with the proper parentFolderId set', () => {
       const baseState = setupState()
       const store = spiedStore(baseState)
@@ -241,11 +246,67 @@ describe('Upload data actions', () => {
     })
   })
 
+  describe('uploadToMediaFolder for media files', () => {
+    const fakeFileMetaData = {
+      parentFolderId: 'media',
+      name: 'foo.mov',
+      size: 3000,
+      contentType: 'video/mov',
+      domObject: {
+        name: 'foo.mov',
+        size: 3000,
+        type: 'video/mov'
+      }
+    }
+    let k5uploaderstub
+
+    beforeEach(() => {
+      moxios.install()
+      k5uploaderstub = sinon.stub(K5Uploader.prototype, 'loadUiConf').callsFake(() => 'mock')
+    })
+    afterEach(() => {
+      moxios.uninstall()
+      k5uploaderstub.restore()
+    })
+
+    it('uploads directly to notorious/kaltura', () => {
+      const baseState = setupState()
+      const store = spiedStore(baseState)
+
+      // I really just wanted to stub saveMediaRecording and assert that it's called,
+      // but sinon can't stub functions from es6 modules.
+      // The next best thing is to check that the K5Uploader is exercised
+      moxios.stubRequest(
+        'http://host:port/api/v1/services/kaltura_session?include_upload_config=1',
+        {
+          status: 200,
+          response: {
+            ks: 'averylongstring',
+            subp_id: '0',
+            partner_id: '9',
+            uid: '1234_567',
+            serverTime: 1234,
+            kaltura_setting: {
+              uploadUrl: 'url.url.url',
+              entryUrl: 'url.url.url',
+              uiconfUrl: 'url.url.url',
+              partnerData: 'data from our partners'
+            }
+          }
+        }
+      )
+
+      return store.dispatch(actions.uploadToMediaFolder('media', fakeFileMetaData)).then(() => {
+        sinon.assert.called(k5uploaderstub)
+      })
+    })
+  })
+
   describe('generateThumbnailUrl', () => {
     it('returns the results if the file is not an image', () => {
       const results = {'content-type': 'application/pdf'}
       return actions.generateThumbnailUrl(results).then(returnResults => {
-        assert.deepEqual(results, returnResults)
+        assert.deepStrictEqual(results, returnResults)
       })
     })
 
@@ -259,7 +320,7 @@ describe('Upload data actions', () => {
       return actions
         .generateThumbnailUrl(results, fakeFileDOMObject, fakeFileReader)
         .then(returnResults => {
-          assert.deepEqual(returnResults, {
+          assert.deepStrictEqual(returnResults, {
             'content-type': 'image/jpeg',
             thumbnail_url: 'fakeDataURL'
           })
@@ -283,7 +344,6 @@ describe('Upload data actions', () => {
     }
 
     beforeEach(() => {
-      Bridge.focusEditor(null)
       const baseState = getBaseState()
       store = spiedStore(baseState)
       props = {}
@@ -429,6 +489,38 @@ describe('Upload data actions', () => {
     })
 
     describe('link embed', () => {
+      describe('when the content-type is preveiewable by canvas', () => {
+        const uploadResult = {
+          display_name: 'display_name',
+          url: 'http://somewhere',
+          'content-type': 'application/pdf'
+        }
+
+        it('inserts link with data-canvas-previewable', () => {
+          actions.embedUploadResult(uploadResult)
+          sinon.assert.calledWithMatch(
+            Bridge.insertLink,
+            {
+              'data-canvas-previewable': true,
+              title: uploadResult.display_name,
+              href: uploadResult.url
+            },
+            false
+          )
+        })
+
+        it('sets "disablePreview" embed data to true', () => {
+          actions.embedUploadResult(uploadResult)
+          sinon.assert.calledWithMatch(
+            Bridge.insertLink,
+            {
+              embed: {disablePreview: true}
+            },
+            false
+          )
+        })
+      })
+
       it('inserts link with display_name as title', () => {
         const expected = 'foo'
         actions.embedUploadResult({display_name: expected})
@@ -439,24 +531,6 @@ describe('Upload data actions', () => {
         const expected = 'http://github.com'
         actions.embedUploadResult({url: expected})
         sinon.assert.calledWithMatch(Bridge.insertLink, {href: expected}, false)
-      })
-
-      it('inserts link with data-canvas-previewable if the content-type is previewable by canvas', () => {
-        const uploadResult = {
-          display_name: 'display_name',
-          url: 'http://somewhere',
-          'content-type': 'application/pdf'
-        }
-        actions.embedUploadResult(uploadResult)
-        sinon.assert.calledWithMatch(
-          Bridge.insertLink,
-          {
-            'data-canvas-previewable': true,
-            title: uploadResult.display_name,
-            href: uploadResult.url
-          },
-          false
-        )
       })
 
       it('delegates to fileEmbed for embed data', () => {
@@ -488,6 +562,21 @@ describe('Upload data actions', () => {
   })
 
   describe('handleFailures', () => {
+    const R = global.Response
+    beforeEach(() => {
+      if (typeof Response !== 'function') {
+        global.Response = function (body, status) {
+          this.status = status
+          this.json = () => {
+            return Promise.resolve(JSON.parse(body))
+          }
+        }
+      }
+    })
+    afterEach(() => {
+      global.Response = R
+    })
+
     it('calls quota exceeded when the file size exceeds the quota', () => {
       const fakeDispatch = sinon.spy()
       const error = {
@@ -586,7 +675,7 @@ describe('Upload data actions', () => {
       const error = new Error('uh oh')
       const action = actions.failMediaUpload(error)
       sinon.assert.calledWith(showErrorSpy, error)
-      assert.deepEqual(action, {type: actions.FAIL_MEDIA_UPLOAD, error})
+      assert.deepStrictEqual(action, {type: actions.FAIL_MEDIA_UPLOAD, error})
     })
 
     it('handles failure', () => {

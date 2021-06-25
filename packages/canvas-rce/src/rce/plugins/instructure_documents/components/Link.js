@@ -21,10 +21,10 @@ import {func, instanceOf, shape} from 'prop-types'
 import {fileOrMediaObjectShape} from '../../shared/fileShape'
 import classnames from 'classnames'
 
-import {StyleSheet, css} from 'aphrodite'
-import {AccessibleContent} from '@instructure/ui-a11y'
-import {Flex, View} from '@instructure/ui-layout'
-import {Text} from '@instructure/ui-elements'
+import {AccessibleContent} from '@instructure/ui-a11y-content'
+import {Flex} from '@instructure/ui-flex'
+import {View} from '@instructure/ui-view'
+import {Text} from '@instructure/ui-text'
 import {IconDragHandleLine, IconPublishSolid, IconUnpublishedSolid} from '@instructure/ui-icons'
 
 import formatMessage from '../../../../format-message'
@@ -44,7 +44,8 @@ export default function Link(props) {
   function linkAttrsFromDoc() {
     const canPreview = isPreviewable(props.content_type)
     const clazz = classnames('instructure_file_link', {
-      instructure_scribd_file: canPreview
+      instructure_scribd_file: canPreview,
+      inline_disabled: true
     })
 
     const attrs = {
@@ -106,9 +107,11 @@ export default function Link(props) {
       style={{position: 'relative'}}
     >
       <View
-        className={css(styles.link)}
         as="div"
         role="button"
+        position="relative"
+        focusPosition="inset"
+        focusColor="info"
         tabIndex="0"
         aria-describedby={props.describedByID}
         elementRef={elementRef}
@@ -168,11 +171,3 @@ Link.propTypes = {
 Link.defaultProps = {
   focusRef: null
 }
-
-const styles = StyleSheet.create({
-  link: {
-    ':focus': {
-      'outline-offset': '-4px'
-    }
-  }
-})

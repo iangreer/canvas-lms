@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2018 - present Instructure, Inc.
 #
@@ -64,7 +66,6 @@ describe "dashboard" do
     end
 
     it "can dismiss notification from todo list sidebar" do
-      wait_for_todo_load
       dismiss_announcement
       expect(todo_sidebar_container).to contain_jqcss("span:contains('Nothing for now')")
     end
@@ -131,7 +132,6 @@ describe "dashboard" do
     end
 
     it "can dismiss notification from todo list sidebar" do
-      wait_for_todo_load
       dismiss_announcement
       expect(todo_sidebar_container).to contain_jqcss("span:contains('Nothing for now')")
     end
@@ -183,4 +183,3 @@ describe "dashboard" do
     end
   end
 end
-

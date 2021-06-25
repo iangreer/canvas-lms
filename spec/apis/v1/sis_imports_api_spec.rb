@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2011 - 2014 Instructure, Inc.
 #
@@ -840,6 +842,19 @@ describe SisImportsApiController, type: :request do
                       :format => 'json', :account_id => @account.id.to_s, :created_since => 1.day.ago.iso8601 })
 
     expect(json["sis_imports"].count).to eq 1
+  end
+
+  it "filters sis imports by an end date" do
+    batch = @account.sis_batches.create
+    json = api_call(:get, "/api/v1/accounts/#{@account.id}/sis_imports.json",
+                    { :controller => 'sis_imports_api', :action => 'index',
+                      :format => 'json', :account_id => @account.id.to_s, :created_before => 1.day.from_now.iso8601 })
+    expect(json["sis_imports"].count).to eq 1
+
+    json = api_call(:get, "/api/v1/accounts/#{@account.id}/sis_imports.json",
+                    { :controller => 'sis_imports_api', :action => 'index',
+                      :format => 'json', :account_id => @account.id.to_s, :created_before => 1.day.ago.iso8601 })
+    expect(json["sis_imports"].count).to eq 0
   end
 
   it "should not fail when options are empty" do

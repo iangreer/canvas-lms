@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2017 - present Instructure, Inc.
 #
@@ -102,6 +104,22 @@ describe Types::AssignmentType do
     rubric_for_course
     rubric_association_model(context: course, rubric: @rubric, association_object: assignment, purpose: 'grading')
     expect(assignment_type.resolve("rubric { _id }")).to eq @rubric.id.to_s
+  end
+
+  describe "rubric association" do
+    before(:each) do
+      rubric_for_course
+      rubric_association_model(context: course, rubric: @rubric, association_object: assignment, purpose: 'grading')
+    end
+
+    it "is returned if an association exists and is active" do
+      expect(assignment_type.resolve("rubricAssociation { _id }")).to eq @rubric_association.id.to_s
+    end
+
+    it "is not returned if the association is soft-deleted" do
+      @rubric_association.destroy!
+      expect(assignment_type.resolve("rubricAssociation { _id }")).to eq nil
+    end
   end
 
   it "works with moderated grading" do
@@ -545,6 +563,20 @@ describe Types::AssignmentType do
           } } } }
         GQL
       ).to eq [[student.id.to_s]]
+    end
+
+    it "works for Noop tags" do
+      course.root_account.enable_feature! 'conditional_release'
+      assignment.assignment_overrides.create!(set_type: 'Noop', set_id: 555)
+      expect(
+        assignment_type.resolve(<<~GQL, current_user: teacher)
+          assignmentOverrides { edges { node { set {
+            ... on Noop {
+              _id
+            }
+          } } } }
+        GQL
+      ).to eq ['555']
     end
   end
 

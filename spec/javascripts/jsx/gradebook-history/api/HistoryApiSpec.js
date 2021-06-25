@@ -16,9 +16,9 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import axios from 'axios'
+import axios from '@canvas/axios'
 import Fixtures from '../Fixtures'
-import HistoryApi from 'jsx/gradebook-history/api/HistoryApi'
+import HistoryApi from 'ui/features/gradebook_history/react/api/HistoryApi.js'
 
 QUnit.module('HistoryApi', {
   setup() {
@@ -98,6 +98,26 @@ test('getGradebookHistory requests with course, assignment, grader, and student'
   const url = `/api/v1/audit/grade_change/courses/${this.courseId}/assignments/${assignment}/graders/${grader}/students/${student}`
   HistoryApi.getGradebookHistory(this.courseId, {assignment, grader, student})
   strictEqual(this.getStub.callCount, 1)
+  strictEqual(this.getStub.getCall(0).args[0], url)
+})
+
+test('getGradebookHistory requests with course and override grades', function() {
+  const url = `/api/v1/audit/grade_change/courses/${this.courseId}/assignments/override`
+
+  HistoryApi.getGradebookHistory(this.courseId, {showFinalGradeOverridesOnly: true})
+  strictEqual(this.getStub.getCall(0).args[0], url)
+})
+
+test('getGradebookHistory filters by override grades combined with other parameters', function() {
+  const grader = '22'
+  const student = '2200'
+  const url = `/api/v1/audit/grade_change/courses/${this.courseId}/assignments/override/graders/${grader}/students/${student}`
+
+  HistoryApi.getGradebookHistory(this.courseId, {
+    grader,
+    showFinalGradeOverridesOnly: true,
+    student
+  })
   strictEqual(this.getStub.getCall(0).args[0], url)
 })
 

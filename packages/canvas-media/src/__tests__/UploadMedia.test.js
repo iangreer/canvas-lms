@@ -25,31 +25,34 @@ const uploadMediaTranslations = {
     CLEAR_FILE_TEXT: 'Clear selected file',
     CLOSE_TEXT: 'Close',
     COMPUTER_PANEL_TITLE: 'Computer',
-    DRAG_DROP_CLICK_TO_BROWSE: 'Drop and drop, or click to browse your computer',
+    DRAG_DROP_CLICK_TO_BROWSE: 'Drag and drop, or click to browse your computer',
     DRAG_FILE_TEXT: 'Drag a file here',
-    EMBED_PANEL_TITLE: 'Embed',
-    EMBED_VIDEO_CODE_TEXT: 'Embed Code',
     INVALID_FILE_TEXT: 'Invalid File',
     LOADING_MEDIA: 'Loading...',
     RECORD_PANEL_TITLE: 'Record',
     SUBMIT_TEXT: 'Submit',
     UPLOADING_ERROR: 'Upload Error',
     UPLOAD_MEDIA_LABEL: 'Upload Media',
-    MEDIA_RECORD_NOT_AVAILABLE: 'Record not available'
+    MEDIA_RECORD_NOT_AVAILABLE: 'Record not available',
+    PROGRESS_LABEL: 'Making progress'
   }
 }
 
 function renderComponent(overrideProps = {}) {
   return render(
     <UploadMedia
-      contextType="course"
-      contextId="17"
+      rcsConfig={{
+        contextType: 'course',
+        contextId: '17',
+        origin: 'http://host:port',
+        jwt: 'whocares'
+      }}
       open
       liveRegion={() => null}
       onStartUpload={() => {}}
       onComplete={() => {}}
       onDismiss={() => {}}
-      tabs={{embed: false, record: false, upload: true}}
+      tabs={{record: false, upload: true}}
       uploadMediaTranslations={uploadMediaTranslations}
       {...overrideProps}
     />
@@ -59,61 +62,79 @@ function renderComponent(overrideProps = {}) {
 describe('Upload Media', () => {
   describe('renders the selected tabs', () => {
     it('renders Computer', () => {
-      const {getByText} = renderComponent({tabs: {embed: false, record: false, upload: true}})
+      const {getByText} = renderComponent({tabs: {record: false, upload: true}})
       expect(getByText('Computer')).toBeInTheDocument()
     })
 
-    it('renders Computer and Embed', () => {
-      const {getByText} = renderComponent({tabs: {embed: true, record: false, upload: true}})
-      expect(getByText('Computer')).toBeInTheDocument()
-      expect(getByText('Embed')).toBeInTheDocument()
-    })
-
-    it('renders Computer, Record, and Embed', () => {
-      const {getByText} = renderComponent({tabs: {embed: true, record: true, upload: true}})
+    it('renders Computer and Record', () => {
+      const {getByText} = renderComponent({tabs: {record: true, upload: true}})
       expect(getByText('Computer')).toBeInTheDocument()
       expect(getByText('Record')).toBeInTheDocument()
-      expect(getByText('Embed')).toBeInTheDocument()
     })
   })
 
   describe('only enable Submit button when ready', () => {
-    it('is disabled before ComputerPanel gets a file', () => {
-      const {getByText} = renderComponent({
-        tabs: {upload: true}
+    let computerFile
+
+    beforeEach(() => {
+      computerFile = new File(['bits'], 'dummy-video.mp4', {
+        lastModifiedDate: 1568991600840,
+        type: 'video/mp4'
       })
+    })
+
+    it('is disabled before ComputerPanel gets a file', () => {
+      const {getByText} = renderComponent({tabs: {upload: true}})
       expect(getByText('Submit').closest('button')).toHaveAttribute('disabled')
     })
 
     it('is enabled once ComputerPanel has a file', () => {
+      const {getByText} = renderComponent({tabs: {upload: true}, computerFile})
+      expect(getByText('Submit').closest('button')).not.toHaveAttribute('disabled')
+    })
+
+    it('is enabled while uploading if disableSubmitWhileUploading is false', () => {
       const {getByText} = renderComponent({
+        disableSubmitWhileUploading: false,
+        onStartUpload: jest.fn(),
         tabs: {upload: true},
-        computerFile: {
-          lastModified: 1568991600840,
-          lastModifiedDate: new Date(1568991600840),
-          name: 'dummy-video.mp4',
-          size: 1875112,
-          type: 'video/mp4'
-        }
+        computerFile
       })
-      expect(getByText('Submit').closest('button')).not.toHaveAttribute('disabled')
+
+      fireEvent.click(getByText('Submit'))
+      expect(getByText('Submit').closest('button')).not.toBeDisabled()
     })
 
-    it('is disabled before EmbedPanel has a value', () => {
+    it('is disabled while uploading if disableSubmitWhileUploading is true', () => {
       const {getByText} = renderComponent({
-        tabs: {embed: true}
+        disableSubmitWhileUploading: true,
+        onStartUpload: jest.fn(),
+        tabs: {upload: true},
+        computerFile
       })
-      expect(getByText('Submit').closest('button')).toHaveAttribute('disabled')
+
+      fireEvent.click(getByText('Submit'))
+      expect(getByText('Submit').closest('button')).toBeDisabled()
     })
 
-    it('is enabled once EmbedPanel has a value', () => {
-      const {getByText} = renderComponent({
-        tabs: {embed: true},
-        embedCode: 'embed me'
+    it('is disabled while uploading if file title is empty', () => {
+      computerFile = new File(['bits'], 'dummy-video.mp4', {
+        lastModifiedDate: 1568991600840,
+        type: 'video/mp4'
       })
-      expect(getByText('Submit').closest('button')).not.toHaveAttribute('disabled')
+      const {getByPlaceholderText, getByText} = renderComponent({
+        disableSubmitWhileUploading: false,
+        onStartUpload: jest.fn(),
+        tabs: {upload: true},
+        computerFile
+      })
+      const submitButton = getByText('Submit').closest('button')
+      const titleInput = getByPlaceholderText('File name')
+      fireEvent.change(titleInput, {target: {value: ''}})
+      expect(submitButton).toBeDisabled()
+      fireEvent.change(titleInput, {target: {value: 'Awesome video'}})
+      expect(submitButton).toBeEnabled()
     })
-
     // the submit button is not rendered for the record tab
   })
 
@@ -123,29 +144,14 @@ describe('Upload Media', () => {
       const {getByText} = renderComponent({
         onStartUpload,
         tabs: {upload: true},
-        computerFile: {
-          lastModified: 1568991600840,
-          lastModifiedDate: new Date(1568991600840),
-          name: 'dummy-video.mp4',
-          size: 1875112,
+        computerFile: new File(['bits'], 'dummy-video.mp4', {
+          lastModifiedDate: 1568991600840,
           type: 'video/mp4'
-        }
+        })
       })
 
       fireEvent.click(getByText('Submit'))
       expect(onStartUpload).toHaveBeenCalled()
-    })
-
-    it('calls onEmbed when embedding', async () => {
-      const onEmbed = jest.fn()
-      const {getByText} = renderComponent({
-        onEmbed,
-        tabs: {embed: true},
-        embedCode: 'some embed code'
-      })
-
-      fireEvent.click(getByText('Submit'))
-      expect(onEmbed).toHaveBeenCalled()
     })
 
     // the rest is tested via saveMediaRecording.test.js

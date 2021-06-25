@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2020 - present Instructure, Inc.
 #
@@ -82,6 +84,14 @@ class ConditionalReleaseObjects
 
     def these_scores_are_out_of_order_exists?
       element_exists?("//*[contains(@id,'error') and contains(text(),'these scores are out of order')]", true)
+    end
+
+    def must_be_a_number_exists?
+      element_exists?("//*[contains(@id,'error') and contains(text(),'must be a number')]", true)
+    end
+
+    def number_is_too_small_exists?
+      element_exists?("//*[contains(@id,'error') and contains(text(),'number is too small')]", true)
     end
 
     # Common Selectors

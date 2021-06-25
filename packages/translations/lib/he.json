@@ -101,6 +101,9 @@
     "choose_usage_rights_33683854": {
         "message": "בחירה של זכויות שימוש..."
     },
+    "clear_2084585f": {
+        "message": "ניקוי"
+    },
     "click_to_embed_imagename_c41ea8df": {
         "message": "הקש/י כדי לשלב { imageName }"
     },
@@ -634,6 +637,9 @@
     },
     "video_player_b371005": {
         "message": "נגן הוידאו"
+    },
+    "view_ba339f93": {
+        "message": "תצוגה"
     },
     "wiki_home_9cd54d0": {
         "message": "דף הבית של וויקי"

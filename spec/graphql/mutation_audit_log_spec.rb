@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2019 Instructure, Inc.
 #
@@ -20,7 +22,6 @@ require_relative "../spec_helper"
 require_relative "./graphql_spec_helper"
 
 describe AuditLogFieldExtension do
-
   before do
     if !AuditLogFieldExtension.enabled?
       skip("AuditLog needs to be enabled by configuring dynamodb.yml")
@@ -86,6 +87,7 @@ describe AuditLogFieldExtension::Logger do
   let(:mutation) { double(graphql_name: "asdf") }
 
   before(:once) do
+    WebMock.enable_net_connect!
     Canvas::DynamoDB::DevUtils.initialize_ddb_for_development!(:auditors, "graphql_mutations", recreate: true)
     course_with_teacher(active_all: true)
     @entry = @course.assignments.create! name: "asdf"
@@ -113,16 +115,16 @@ describe AuditLogFieldExtension::Logger do
     })
   end
 
-  context "#log_entry_id" do
+  context "#log_entry_ids" do
     it "uses #asset_string and includes the domain_root_account id for the object_id" do
       logger = AuditLogFieldExtension::Logger.new(mutation, {}, {input: {}})
-      expect(logger.log_entry_id(@entry, "some_field")).to eq "#{@course.root_account.global_id}-assignment_#{@entry.id}"
+      expect(logger.log_entry_ids(@entry, "some_field")).to eq ["#{@course.root_account.global_id}-assignment_#{@entry.id}"]
     end
 
     it "allows overriding the logged object" do
       expect(mutation).to receive(:whatever_log_entry) { @entry.context }
       logger = AuditLogFieldExtension::Logger.new(mutation, {}, {input: {}})
-      expect(logger.log_entry_id(@entry, "whatever")).to eq "#{@course.root_account.global_id}-course_#{@course.id}"
+      expect(logger.log_entry_ids(@entry, "whatever")).to eq ["#{@course.root_account.global_id}-course_#{@course.id}"]
     end
   end
 

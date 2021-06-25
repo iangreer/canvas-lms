@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2020 - present Instructure, Inc.
 #
@@ -29,5 +31,10 @@ module Types
     field :calculation_int, Integer, null: true
     field :context_type, String, null: false
     field :context_id, Integer, null: false
+
+    field :locked, Boolean, null: false
+    def locked
+      !object.context.grants_right?(current_user, :manage_proficiency_calculations)
+    end
   end
 end

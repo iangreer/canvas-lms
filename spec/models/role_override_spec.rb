@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2011 - present Instructure, Inc.
 #
@@ -41,7 +43,7 @@ describe RoleOverride do
     a2 = account_model(:parent_account => a1)
     a3 = account_model(:parent_account => a2)
 
-    role = teacher_role
+    role = teacher_role(root_account_id: a1.id)
     RoleOverride.create!(:context => a1, :permission => 'moderate_forum',
                          :role => role, :enabled => false)
     RoleOverride.create!(:context => a2, :permission => 'moderate_forum',
@@ -140,7 +142,7 @@ describe RoleOverride do
         role: @role,
         enabled: false
         )
-      altered_id = @account.root_account_id + 1
+      altered_id = Account.create!.id
       override.root_account_id = altered_id
 
       override.enabled = true
@@ -412,8 +414,9 @@ describe RoleOverride do
       end
     end
 
-    context "account_only" do
+    context "account_only with granular_permissions_manage_users FF off" do
       before :once do
+        Account.default.disable_feature! :granular_permissions_manage_users
         @site_admin = User.create!
         Account.site_admin.account_users.create!(user: @site_admin)
         @root_admin = User.create!
@@ -455,6 +458,26 @@ describe RoleOverride do
         expect(@sub_account.grants_right?(@site_admin, :manage_admin_users)).to be_truthy
         expect(@sub_account.grants_right?(@root_admin, :manage_admin_users)).to be_truthy
         expect(@sub_account.grants_right?(@sub_admin, :manage_admin_users)).to be_falsey
+      end
+    end
+
+    context "account_only with granular_permissions_manage_users FF on" do
+      before :once do
+        Account.default.enable_feature! :granular_permissions_manage_users
+        @site_admin = User.create!
+        Account.site_admin.account_users.create!(user: @site_admin)
+        @root_admin = User.create!
+        Account.default.account_users.create!(user: @root_admin)
+        @sub_admin = User.create!
+        @sub_account = Account.default.sub_accounts.create!
+        @sub_account.account_users.create!(user: @sub_admin)
+      end
+
+      it "should not allow a sub-account to revoke a permission granted to a parent account" do
+        @sub_account.role_overrides.create!(role: admin_role, enabled: false, permission: :allow_course_admin_actions)
+        expect(@sub_account.grants_right?(@site_admin, :allow_course_admin_actions)).to be_truthy
+        expect(@sub_account.grants_right?(@root_admin, :allow_course_admin_actions)).to be_truthy
+        expect(@sub_account.grants_right?(@sub_admin, :allow_course_admin_actions)).to be_falsey
       end
     end
 
@@ -565,6 +588,30 @@ describe RoleOverride do
   describe 'specific permissions' do
     before(:once) do
       account_model
+    end
+
+    describe 'manage_proficiency_calculations' do
+      let(:permission) { RoleOverride.permissions[:manage_proficiency_calculations] }
+
+      it 'is enabled by default for account admins' do
+        expect(permission[:true_for]).to match_array %w(AccountAdmin)
+      end
+
+      it 'is available to account admins, account memberships, teachers, and designers' do
+        expect(permission[:available_to]).to match_array %w(AccountAdmin AccountMembership DesignerEnrollment TeacherEnrollment TeacherlessStudentEnrollment)
+      end
+    end
+
+    describe 'manage_proficiency_scales' do
+      let(:permission) { RoleOverride.permissions[:manage_proficiency_scales] }
+
+      it 'is enabled by default for account admins' do
+        expect(permission[:true_for]).to match_array %w(AccountAdmin)
+      end
+
+      it 'is available to account admins, account memberships, teachers, and designers' do
+        expect(permission[:available_to]).to match_array %w(AccountAdmin AccountMembership DesignerEnrollment TeacherEnrollment TeacherlessStudentEnrollment)
+      end
     end
 
     describe 'select_final_grade' do

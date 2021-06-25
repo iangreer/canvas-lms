@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2014 - present Instructure, Inc.
 #
@@ -28,7 +30,6 @@ module AcademicBenchmark
               :settings_partial => 'academic_benchmark/plugin_settings',
               :hide_from_users => true,
               :settings => {
-                :common_core_guid => AcademicBenchmark::Converter::COMMON_CORE_GUID,
                 :partner_id => nil,
                 :partner_key => nil,
                 :worker => 'CCWorker',

@@ -17,7 +17,7 @@
  */
 
 import * as browser from '../common/browser'
-import tinymce from 'tinymce/tinymce'
+import tinymce from 'tinymce'
 
 // load theme
 import 'tinymce/themes/silver/theme'
@@ -37,6 +37,7 @@ import 'tinymce/plugins/wordcount/plugin'
 import 'tinymce/plugins/paste/plugin'
 import 'tinymce/plugins/table/plugin'
 import 'tinymce/plugins/hr/plugin'
+import 'tinymce/plugins/fullscreen/plugin'
 
 // add custom plugins
 import './plugins/instructure-ui-icons/plugin'
@@ -47,11 +48,16 @@ import './plugins/instructure_external_tools/plugin'
 import './plugins/instructure_record/plugin'
 import './plugins/instructure_links/plugin'
 import './plugins/instructure_documents/plugin'
+import './plugins/instructure_html_view/plugin'
+import './plugins/instructure_media_embed/plugin'
+import './plugins/instructure_buttons/plugin'
+
+import 'tinymce-a11y-checker'
 
 // prevent tinymce from loading language scripts with explicit
 // language_url of 'none'
 const originalScriptAdd = tinymce.ScriptLoader.add
-tinymce.ScriptLoader.add = function(url) {
+tinymce.ScriptLoader.add = function (url) {
   if (url !== 'none') {
     originalScriptAdd.apply(tinymce.ScriptLoader, arguments)
   }

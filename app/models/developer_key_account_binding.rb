@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2018 - present Instructure, Inc.
 #
@@ -86,7 +88,7 @@ class DeveloperKeyAccountBinding < ApplicationRecord
     return nil if developer_key.account_id.present?
     Shard.default.activate do
       MultiCache.fetch(site_admin_cache_key(developer_key)) do
-        Shackles.activate(:slave) do
+        GuardRail.activate(:secondary) do
           binding = self.where.not(workflow_state: ALLOW_STATE).find_by(
             account: Account.site_admin,
             developer_key: developer_key

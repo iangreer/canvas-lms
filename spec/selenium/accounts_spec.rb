@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2011 - present Instructure, Inc.
 #
@@ -38,8 +40,8 @@ describe "account" do
       f(".add_term_link").click
       wait_for_ajaximations
 
-      f("#enrollment_term_name").send_keys("some name")
-      f("#enrollment_term_sis_source_id").send_keys("some id")
+      f("#enrollment_term_name_new").send_keys("some name")
+      f("#enrollment_term_sis_source_id_new").send_keys("some id")
 
       f("#term_new .general_dates .start_date .edit_term input").send_keys("2011-07-01")
       f("#term_new .general_dates .end_date .edit_term input").send_keys("2011-07-31")

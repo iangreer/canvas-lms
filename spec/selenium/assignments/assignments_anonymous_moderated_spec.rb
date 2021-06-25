@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2018 - present Instructure, Inc.
 #
@@ -65,7 +67,7 @@ describe 'Anonymous Moderated Marking' do
 
   context 'with Anonymous assignment' do
     before :once do
-      course_with_student(course: @course, name: 'Slave 1', active_all: true)
+      course_with_student(course: @course, name: 'Hardworking Student', active_all: true)
       # create an anonymous assignment
       @anonymous_assignment = @course.assignments.create!(
         title: 'Anonymous Assignment1',
@@ -97,7 +99,7 @@ describe 'Anonymous Moderated Marking' do
 
   context 'with Moderated assignment' do
     before :once do
-      course_with_student(course: @course, name: 'Slave 1', active_all: true)
+      course_with_student(course: @course, name: 'Hardworking Student', active_all: true)
       # create moderated assignment
       @moderated_assignment = @course.assignments.create!(
         title: 'Moderated Assignment1',

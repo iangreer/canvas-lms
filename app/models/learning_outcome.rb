@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2011 - present Instructure, Inc.
 #
@@ -17,6 +19,7 @@
 #
 
 class LearningOutcome < ActiveRecord::Base
+  include ManyRootAccounts
   include Workflow
   include MasterCourses::Restrictor
   restrict_columns :state, [:workflow_state]
@@ -293,6 +296,9 @@ class LearningOutcome < ActiveRecord::Base
 
   alias_method :destroy_permanently!, :destroy
   def destroy
+    # delete total_outcomes cache for each active learning_outcome_links contexts
+    clear_total_outcomes_cache
+
     # delete any remaining links to the outcome. in case of UI, this was
     # triggered by ContentTag#destroy and the checks have already run, we don't
     # need to do it again. in case of console, we don't care to force the
@@ -312,12 +318,12 @@ class LearningOutcome < ActiveRecord::Base
 
   def assessed?(course = nil)
     if course
-      self.learning_outcome_results.where(context_id: course, context_type: "Course").exists?
+      self.learning_outcome_results.active.where(context_id: course, context_type: "Course").exists?
     else
-      if learning_outcome_results.loaded?
-        learning_outcome_results.any?
+      if learning_outcome_results.active.loaded?
+        learning_outcome_results.active.any?
       else
-        learning_outcome_results.exists?
+        learning_outcome_results.active.exists?
       end
     end
   end
@@ -348,7 +354,7 @@ class LearningOutcome < ActiveRecord::Base
         codes = @tied_context.all_courses.select(:id).map(&:asset_string)
       end
     end
-    self.learning_outcome_results.for_context_codes(codes).count
+    self.learning_outcome_results.active.for_context_codes(codes).count
   end
 
   def self.delete_if_unused(ids)
@@ -375,6 +381,7 @@ class LearningOutcome < ActiveRecord::Base
     lambda do |user|
       joins(:learning_outcome_results)
         .where("learning_outcomes.id=learning_outcome_results.learning_outcome_id " \
+               "AND learning_outcome_results.workflow_state <> 'deleted' " \
                "AND learning_outcome_results.user_id=?", user)
         .order(best_unicode_collation_key('short_description'))
     end
@@ -389,29 +396,30 @@ class LearningOutcome < ActiveRecord::Base
       !self.saved_change_to_short_description? &&
       !self.saved_change_to_description?
 
-    self.send_later_if_production(:update_associated_rubrics)
+    delay_if_production.update_associated_rubrics
   end
 
   def update_associated_rubrics
-    updateable_rubrics.find_each do |rubric|
-      rubric.update_learning_outcome_criteria(self)
+    updateable_rubrics.in_batches(of: 100).each do |relation|
+      relation.transaction do
+        relation.lock('FOR UPDATE OF rubrics').each do |rubric|
+          rubric.update_learning_outcome_criteria(self)
+        end
+      end
     end
   end
 
   def updateable_rubrics
     conds = { learning_outcome_id: self.id, content_type: 'Rubric', workflow_state: 'active' }
     # Find all unassessed, active rubrics aligned to this outcome, referenced by no more than one assignment
-    Rubric.where(id:
-      Rubric.select('rubrics.id').
-        where.not(workflow_state: 'deleted').
+    Rubric.where(
+      id: Rubric.
+        active.
         joins(:learning_outcome_alignments).
         where(content_tags: conds).
-        joins("LEFT JOIN #{RubricAssociation.quoted_table_name} ra2 ON rubrics.id = ra2.rubric_id AND ra2.purpose = 'grading'").
-        group('rubrics.id').
-        having('COUNT(rubrics.id) < 2')).
-      joins("LEFT JOIN #{RubricAssociation.quoted_table_name} ra2 ON rubrics.id = ra2.rubric_id AND ra2.purpose = 'grading'" \
-            " LEFT JOIN #{RubricAssessment.quoted_table_name} ra3 ON ra2.id = ra3.rubric_association_id").
-      where('ra3.id IS NULL')
+        with_at_most_one_association.
+        select('rubrics.id')
+    ).unassessed
   end
 
   def updateable_rubrics?
@@ -435,7 +443,9 @@ class LearningOutcome < ActiveRecord::Base
       content: asset,
       tag_type: 'learning_outcome',
       context: context
-    )
+    ) do |_a|
+      InstStatsd::Statsd.increment('learning_outcome.align')
+    end
   end
 
   def determine_tag_type(mastery_type)
@@ -446,5 +456,28 @@ class LearningOutcome < ActiveRecord::Base
       new_mastery_type = 'explicit_mastery'
     end
     new_mastery_type
+  end
+
+  def clear_total_outcomes_cache
+    return unless improved_outcomes_management?
+
+    ContentTag.learning_outcome_links.
+      active.
+      distinct.
+      where(content_id: id).
+      select(<<-SQL).
+        root_account_id,
+        (CASE WHEN context_type='LearningOutcomeGroup' THEN NULL ELSE context_type END) context_type,
+        (CASE WHEN context_type='LearningOutcomeGroup' THEN NULL ELSE context_id END) context_id
+      SQL
+      map do |ct|
+        Outcomes::LearningOutcomeGroupChildren.new(ct.context).clear_total_outcomes_cache
+      end
+  end
+
+  def improved_outcomes_management?
+    return context.root_account.feature_enabled?(:improved_outcomes_management) if context
+
+    LoadAccount.default_domain_root_account.feature_enabled?(:improved_outcomes_management)
   end
 end

@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2017 - present Instructure, Inc.
 #
@@ -90,7 +92,7 @@ module Gradebook
     end
 
     def self.student_link(student_name)
-      fj("a:contains(#{student_name})")
+      fj("#student-carousel a:contains(#{student_name})")
     end
 
     def self.navigate_to_next_student_selector

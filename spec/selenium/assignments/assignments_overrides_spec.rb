@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2013 - present Instructure, Inc.
 #
@@ -40,7 +42,11 @@ describe "assignment groups" do
       click_option('#assignment_submission_type', 'No Submission')
       update_assignment!
       wait_for_ajaximations
-      a = Assignment.where(title: 'vdd assignment').first
+      a = nil
+      keep_trying_until do
+        a = Assignment.find_by(title: 'vdd assignment')
+        expect(a).not_to be_nil
+      end
       compare_assignment_times(a)
     end
 

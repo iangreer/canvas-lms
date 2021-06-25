@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2019 - present Instructure, Inc.
 #
@@ -36,7 +38,6 @@ describe "direct share page" do
     @course_1.require_assignment_group
     @assignment_1 = @course_1.assignments.create!(:title => 'Assignment First', :points_possible => 10)
     assignment_model(course: @course_1, name: 'assignment to share')
-    @course_1.root_account.enable_feature!(:direct_share)
 
     @export_1 = @course_1.content_exports.create!(workflow_state: 'exported', settings: {"selected_content" => {"assignments" => {CC::CCHelper.create_key(@assignment_1) => '1'}}})
     @export_2 = @course_1.content_exports.create!(workflow_state: 'exported', settings: {"selected_content" => {"assignments" => {CC::CCHelper.create_key(@assignment_1) => '1'}}})

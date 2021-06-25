@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2020 - present Instructure, Inc.
 #
@@ -17,6 +19,8 @@
 #
 
 class Mutations::CreateOutcomeProficiency < Mutations::OutcomeProficiencyBase
+  include GraphQLHelpers::ContextFetcher
+
   graphql_name "CreateOutcomeProficiency"
 
   # input arguments
@@ -24,7 +28,11 @@ class Mutations::CreateOutcomeProficiency < Mutations::OutcomeProficiencyBase
   argument :context_id, ID, required: true
   argument :proficiency_ratings, [Mutations::OutcomeProficiencyRatingCreate], required: true
 
+  VALID_CONTEXTS = %w[Account Course].freeze
+
   def resolve(input:)
-    upsert(input)
+    context = context_fetcher(input, VALID_CONTEXTS)
+    check_permission(context)
+    upsert(input, context: context)
   end
 end

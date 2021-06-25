@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2014 - present Instructure, Inc.
 #
@@ -22,5 +24,7 @@ module IncomingMail
     class UnknownSender < ReplyFrom; end
     class ReplyToLockedTopic < ReplyFrom; end
     class ReplyToDeletedDiscussion < ReplyFrom; end
+    class InvalidParticipant < ReplyFrom; end
+    class BlankMessage < ReplyFrom; end
   end
 end

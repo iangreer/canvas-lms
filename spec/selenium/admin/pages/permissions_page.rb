@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2018 - present Instructure, Inc.
 #
@@ -26,8 +28,12 @@ class PermissionsIndex
     end
 
     # ---------------------- Controls ----------------------
-    def permission_tab(tab_name)
-      f(".#{tab_name}")
+    def course_roles_tab
+      f('#tab-tab-panel-course')
+    end
+
+    def account_roles_tab
+      f('#tab-tab-panel-account')
     end
 
     def search_box
@@ -63,6 +69,7 @@ class PermissionsIndex
     def role_header_by_id(role)
       f("#role_#{role.id}")
     end
+
     # this is the button/link that opens the tray
     def permission_link(permission_name)
       f("#permission_#{permission_name}")
@@ -75,6 +82,10 @@ class PermissionsIndex
 
     def permission_tray_button(permission_name, role_id)
       f(".ic-permissions_role_tray ##{permission_name}_#{role_id}")
+    end
+
+    def permissions_tray_viewable_permissions
+      ff(".ic-permissions__table tbody tr")
     end
 
     def permission_menu_item(item_name)
@@ -148,28 +159,20 @@ class PermissionsIndex
       end
     end
 
-    # -------- Granular Permissions (Feature Flag) --------
-    def granular_permissions_wiki_pages
-      @account ||= Account.default
-      @account.feature_enabled?(:granular_permissions_wiki_pages)
-    end
-
     def manage_wiki_button
-      if granular_permissions_wiki_pages
-        f("button[data-testid='expand_manage_wiki']")
-      end
+      f("button[data-testid='expand_manage_wiki']")
     end
 
     def expand_manage_wiki
-      if granular_permissions_wiki_pages
-        scroll_to_element(manage_wiki_button)
-        manage_wiki_button.click
-      end
+      scroll_to_element(manage_wiki_button)
+      manage_wiki_button.click
     end
 
     # ---------------------- Actions ----------------------
     def choose_tab(tab_name)
-      permission_tab(tab_name).click
+      name = tab_name.to_s.downcase
+      tab = name == 'account' ? account_roles_tab : course_roles_tab
+      tab.click
     end
 
     def close_role_tray_button

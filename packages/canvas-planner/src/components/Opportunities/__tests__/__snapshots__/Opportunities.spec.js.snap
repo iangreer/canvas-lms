@@ -27,14 +27,16 @@ exports[`renders nothing if no opportunities 1`] = `
   </CloseButton>
   <Tabs
     elementRef={[Function]}
+    id="Opportunities-styles__tabs_container"
     onRequestTabChange={[Function]}
     shouldFocusOnRender={false}
+    tabOverflow="stack"
     variant="default"
   >
     <Panel
       elementRef={[Function]}
       isDisabled={false}
-      isSelected={false}
+      isSelected={true}
       labelledBy={null}
       maxHeight="auto"
       padding="small"
@@ -46,7 +48,6 @@ exports[`renders nothing if no opportunities 1`] = `
           New
         </AccessibleContent>
       }
-      selected={true}
       textAlign="start"
       variant="default"
     >
@@ -69,7 +70,6 @@ exports[`renders nothing if no opportunities 1`] = `
           Dismissed
         </AccessibleContent>
       }
-      selected={false}
       textAlign="start"
       variant="default"
     >
@@ -108,14 +108,16 @@ exports[`renders the base component correctly with one of each kind of opportuni
   </CloseButton>
   <Tabs
     elementRef={[Function]}
+    id="Opportunities-styles__tabs_container"
     onRequestTabChange={[Function]}
     shouldFocusOnRender={false}
+    tabOverflow="stack"
     variant="default"
   >
     <Panel
       elementRef={[Function]}
       isDisabled={false}
-      isSelected={false}
+      isSelected={true}
       labelledBy={null}
       maxHeight="auto"
       padding="small"
@@ -127,7 +129,6 @@ exports[`renders the base component correctly with one of each kind of opportuni
           New
         </AccessibleContent>
       }
-      selected={true}
       textAlign="start"
       variant="default"
     >
@@ -166,7 +167,6 @@ exports[`renders the base component correctly with one of each kind of opportuni
           Dismissed
         </AccessibleContent>
       }
-      selected={false}
       textAlign="start"
       variant="default"
     >
@@ -221,14 +221,16 @@ exports[`renders the right course with the right opportunity 1`] = `
   </CloseButton>
   <Tabs
     elementRef={[Function]}
+    id="Opportunities-styles__tabs_container"
     onRequestTabChange={[Function]}
     shouldFocusOnRender={false}
+    tabOverflow="stack"
     variant="default"
   >
     <Panel
       elementRef={[Function]}
       isDisabled={false}
-      isSelected={false}
+      isSelected={true}
       labelledBy={null}
       maxHeight="auto"
       padding="small"
@@ -240,7 +242,6 @@ exports[`renders the right course with the right opportunity 1`] = `
           New
         </AccessibleContent>
       }
-      selected={true}
       textAlign="start"
       variant="default"
     >
@@ -294,7 +295,6 @@ exports[`renders the right course with the right opportunity 1`] = `
           Dismissed
         </AccessibleContent>
       }
-      selected={false}
       textAlign="start"
       variant="default"
     >

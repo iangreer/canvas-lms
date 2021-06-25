@@ -131,6 +131,9 @@
     "choose_usage_rights_33683854": {
         "message": "Виберіть права використання..."
     },
+    "clear_2084585f": {
+        "message": "Очистити"
+    },
     "clear_selected_file_82388e50": {
         "message": "Очистити вибраний файл"
     },
@@ -700,6 +703,9 @@
     },
     "video_player_b371005": {
         "message": "Відеопрогравач"
+    },
+    "view_ba339f93": {
+        "message": "Вигляд"
     },
     "wiki_home_9cd54d0": {
         "message": "Домашня сторінка Wiki"

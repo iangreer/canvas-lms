@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 # coding: utf-8
 #
 # Copyright (C) 2011 - present Instructure, Inc.
@@ -466,9 +468,11 @@ describe UserList do
       expect(users.length).to eq 1
       user = users.first
       expect(user).to be_creation_pending
+      expect(user.root_account_ids).to eq [Account.default.id]
       expect(user.pseudonyms).to be_empty
       expect(user.communication_channels.length).to eq 1
       cc = user.communication_channels.first
+      expect(cc.root_account_ids).to eq [Account.default.id]
       expect(cc.path_type).to eq 'email'
       expect(cc).to be_unconfirmed
       expect(cc.path).to eq 'jt@instructure.com'

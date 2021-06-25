@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2013 - present Instructure, Inc.
 #
@@ -35,7 +37,6 @@ describe "Wiki Pages" do
     before do
       account_model
       course_with_teacher_logged_in :account => @account
-      @course.root_account.enable_feature!(:granular_permissions_wiki_pages)
     end
 
     it "should navigate to pages tab with no front page set", priority: "1", test_id: 126843 do
@@ -105,8 +106,9 @@ describe "Wiki Pages" do
       driver.execute_script("window.close()")
       driver.switch_to.window(driver.window_handles.first)
       get "/courses/#{@course.id}/pages/Page1/edit"
-      switch_editor_views(wiki_page_body)
-      expect(f('textarea')).to include_text('test')
+      in_frame rce_page_body_ifr_id do
+        expect(wiki_body_paragraph.text).to include 'test'
+      end
     end
 
     it "blocks linked page from redirecting parent page", priority: "2", test_id: 927147 do
@@ -117,10 +119,14 @@ describe "Wiki Pages" do
     end
 
     it "does not mark valid links as invalid", priority: "2", test_id: 927788 do
+      Setting.set('link_validator_poll_timeout', 100)
+      Setting.set('link_validator_poll_timeout_initial', 100)
+
       @course.wiki_pages.create!(title: 'Page1', body: 'http://www.instructure.com/')
       get "/courses/#{@course.id}/link_validator"
       fj('button:contains("Start Link Validation")').click
       run_jobs
+      wait_for_ajaximations
       expect(f('#link_validator')).to contain_jqcss('div:contains("No broken links found")')
     end
   end
@@ -129,13 +135,12 @@ describe "Wiki Pages" do
     before do
       account_model
       course_with_teacher_logged_in
-      @course.root_account.enable_feature!(:granular_permissions_wiki_pages)
     end
 
     it "should edit page title from pages index", priority: "1", test_id: 126849 do
       @course.wiki_pages.create!(title: 'B-Team')
       get "/courses/#{@course.id}/pages"
-      f('.al-trigger').click
+      f('tbody .al-trigger').click
       f('.edit-menu-item').click
       expect(f('.edit-control-text').attribute(:value)).to include('B-Team')
       f('.edit-control-text').clear()
@@ -147,7 +152,7 @@ describe "Wiki Pages" do
     it "should display a warning alert when accessing a deleted page", priority: "1", test_id: 126840 do
       @course.wiki_pages.create!(title: 'deleted')
       get "/courses/#{@course.id}/pages"
-      f('.al-trigger').click
+      f('tbody .al-trigger').click
       f('.delete-menu-item').click
       fj('button:contains("Delete")').click
       wait_for_ajaximations
@@ -159,7 +164,6 @@ describe "Wiki Pages" do
   context "Index Page as a student" do
     before do
       course_with_student_logged_in
-      @course.root_account.enable_feature!(:granular_permissions_wiki_pages)
     end
 
     it "should display a warning alert to a student when accessing a deleted page", priority: "1", test_id: 126839 do
@@ -177,29 +181,10 @@ describe "Wiki Pages" do
     end
   end
 
-  context "Insert RCE File" do
-    before do
-      course_with_teacher(user: @teacher, active_course: true, active_enrollment: true)
-      @course.root_account.enable_feature!(:granular_permissions_wiki_pages)
-    end
-
-    it "should insert a file using RCE in the wiki page", priority: "1", test_id: 126673 do
-      stub_rcs_config
-      @course.wiki_pages.create!(:title => "Bar")
-      user_session(@user)
-      file = @course.attachments.create!(display_name: 'some test file', uploaded_data: default_uploaded_data)
-      file.context = @course
-      file.save!
-      get "/courses/#{@course.id}/pages/bar/edit"
-      insert_file_from_rce(:wiki_page)
-    end
-  end
-
   context "Show Page" do
     before do
       account_model
       course_with_student_logged_in account: @account
-      @course.root_account.enable_feature!(:granular_permissions_wiki_pages)
     end
 
     it "should lock page based on module date", priority: "1", test_id: 126845 do
@@ -248,7 +233,6 @@ describe "Wiki Pages" do
   context "Permissions" do
     before do
       course_with_teacher
-      @course.root_account.enable_feature!(:granular_permissions_wiki_pages)
     end
 
     it "displays public content to unregistered users", priority: "1", test_id: 270035 do
@@ -269,7 +253,6 @@ describe "Wiki Pages" do
   context "menu tools" do
     before do
       course_with_teacher_logged_in
-      @course.root_account.enable_feature!(:granular_permissions_wiki_pages)
       @tool = Account.default.context_external_tools.new(:name => "a", :domain => "google.com", :consumer_key => '12345', :shared_secret => 'secret')
       @tool.wiki_page_menu = {:url => "http://www.example.com", :text => "Export Wiki Page"}
       @tool.save!
@@ -310,7 +293,6 @@ describe "Wiki Pages" do
 
     it "should display wiki content", priority: "1", test_id: 270035 do
       @coures = public_course
-      @course.root_account.enable_feature!(:granular_permissions_wiki_pages)
       title = "foo"
       public_course.wiki_pages.create!(:title => title, :body => "bar")
 
@@ -322,7 +304,6 @@ describe "Wiki Pages" do
   context "embed video in a Page" do
     before :each do
       course_with_teacher_logged_in :account => @account, :active_all => true
-      @course.root_account.enable_feature!(:granular_permissions_wiki_pages)
       @course.wiki_pages.create!(title: 'Page1')
     end
 

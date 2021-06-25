@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2011 - present Instructure, Inc.
 #
@@ -24,7 +26,7 @@ class Ignore < ActiveRecord::Base
   validates_inclusion_of :permanent, :in => [false, true]
 
   def self.cleanup
-    Shackles.activate(:slave) do
+    GuardRail.activate(:secondary) do
       Ignore.select(:id).
         joins("LEFT JOIN #{Assignment.quoted_table_name} AS a ON a.id = ignores.asset_id AND 'Assignment' = ignores.asset_type
           LEFT JOIN #{Quizzes::Quiz.quoted_table_name} AS q ON q.id = ignores.asset_id AND 'Quizzes::Quiz' = ignores.asset_type
@@ -36,21 +38,16 @@ class Ignore < ActiveRecord::Base
           OR (q.workflow_state = 'deleted' AND q.updated_at < :deletion_time)
           OR (ar.workflow_state = 'deleted' AND ar.updated_at < :deletion_time)
           OR (NOT EXISTS (
-            WITH enrollments AS (
-              SELECT id, completed_at
+              SELECT 1
               FROM #{Enrollment.quoted_table_name}
               WHERE enrollments.user_id = ignores.user_id
                 AND (enrollments.course_id = a.context_id
                  OR enrollments.course_id = q.context_id
                  OR enrollments.course_id = ara.context_id)
                 AND (enrollments.workflow_state <> 'deleted'
-                 OR enrollments.updated_at > :deletion_time)
-            )
-            SELECT 1 FROM enrollments WHERE enrollments.completed_at IS NULL
-            UNION
-            SELECT 1 FROM enrollments WHERE enrollments.completed_at > :conclude_time))",
-          {deletion_time: 1.month.ago, conclude_time: 6.months.ago}).find_in_batches do |batch|
-        Shackles.activate(:master) do
+                 OR enrollments.updated_at > :deletion_time)))",
+          {deletion_time: 1.month.ago}).find_in_batches do |batch|
+        GuardRail.activate(:primary) do
           Ignore.where(id: batch).delete_all
         end
       end

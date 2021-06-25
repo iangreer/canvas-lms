@@ -20,13 +20,12 @@ import React from 'react'
 import ReactDOM from 'react-dom'
 import Bridge from '../../../bridge'
 import {StoreProvider} from '../shared/StoreContext'
-import uploadMediaTranslations from './mediaTranslations'
 import formatMessage from '../../../format-message'
+import {headerFor, originFromHost} from '../../../sidebar/sources/api'
 
-export default function(ed, document) {
+export default function (ed, document) {
   return import('@instructure/canvas-media').then(CanvasMedia => {
     const UploadMedia = CanvasMedia.default
-    // return import('./UploadMedia').then(({UploadMedia}) => {
     let container = document.querySelector('.canvas-rce-media-upload')
     if (!container) {
       container = document.createElement('div')
@@ -55,7 +54,7 @@ export default function(ed, document) {
     }
 
     const handleUpload = (error, uploadData, onUploadComplete) => {
-      let err_msg = error && uploadMediaTranslations.UploadMediaStrings.UPLOADING_ERROR
+      let err_msg = error && Bridge.uploadMediaTranslations.UploadMediaStrings.UPLOADING_ERROR
       if (error?.file?.size > error?.maxFileSize * 1024 * 1024) {
         err_msg = formatMessage(
           'Size of {file} is greater than the maximum {max} MB allowed file size.',
@@ -81,8 +80,12 @@ export default function(ed, document) {
       <StoreProvider {...trayProps}>
         {contentProps => (
           <UploadMedia
-            contextType={ed.settings.canvas_rce_user_context.type}
-            contextId={ed.settings.canvas_rce_user_context.id}
+            rcsConfig={{
+              contextType: ed.settings.canvas_rce_user_context.type,
+              contextId: ed.settings.canvas_rce_user_context.id,
+              origin: originFromHost(contentProps.host),
+              headers: headerFor(contentProps.jwt)
+            }}
             languages={Bridge.languages}
             open
             liveRegion={() => document.getElementById('flash_screenreader_holder')}
@@ -90,10 +93,9 @@ export default function(ed, document) {
             onUploadComplete={(err, data) =>
               handleUpload(err, data, contentProps.mediaUploadComplete)
             }
-            onEmbed={embedCode => Bridge.insertEmbedCode(embedCode)}
             onDismiss={handleDismiss}
-            tabs={{embed: true, record: true, upload: true}}
-            uploadMediaTranslations={uploadMediaTranslations}
+            tabs={{record: true, upload: true}}
+            uploadMediaTranslations={Bridge.uploadMediaTranslations}
           />
         )}
       </StoreProvider>,

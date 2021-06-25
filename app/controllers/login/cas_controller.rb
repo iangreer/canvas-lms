@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2015 - present Instructure, Inc.
 #
@@ -32,7 +34,7 @@ class Login::CasController < ApplicationController
     # CAS sends a GET with a ticket when it's doing a login
     return create if params[:ticket]
 
-    redirect_to delegated_auth_redirect_uri(client.add_service_to_login_url(cas_login_url))
+    redirect_to client.add_service_to_login_url(cas_login_url)
   end
 
   def create
@@ -62,7 +64,11 @@ class Login::CasController < ApplicationController
       reset_session_for_login
 
       pseudonym = @domain_root_account.pseudonyms.for_auth_configuration(st.user, aac)
-      pseudonym ||= aac.provision_user(st.user) if aac.jit_provisioning?
+      if pseudonym
+        aac.apply_federated_attributes(pseudonym, st.extra_attributes)
+      elsif aac.jit_provisioning?
+        pseudonym = aac.provision_user(st.user, st.extra_attributes)
+      end
 
       if pseudonym
         # Successful login and we have a user
@@ -73,6 +79,7 @@ class Login::CasController < ApplicationController
         session[:cas_session] = params[:ticket]
         session[:login_aac] = aac.id
 
+        pseudonym.infer_auth_provider(aac)
         successful_login(pseudonym.user, pseudonym)
       else
         unknown_user_url = @domain_root_account.unknown_user_url.presence || login_url

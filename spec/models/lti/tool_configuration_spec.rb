@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2018 - present Instructure, Inc.
 #
@@ -393,6 +395,11 @@ module Lti
         expect(tool_configuration.developer_key.scopes).to eq(settings['scopes'])
       end
 
+      it 'set `target_link_uri` to developer_key.redirect_uris' do
+        expect(tool_configuration.developer_key.redirect_uris.size).to eq 1
+        expect(tool_configuration.developer_key.redirect_uris.first).to eq settings['target_link_uri']
+      end
+
       it 'correctly sets custom_fields' do
         expect(tool_configuration.settings['custom_fields']).to eq settings['custom_fields']
       end
@@ -441,6 +448,11 @@ module Lti
 
         it 'adds scopes to dev key' do
           expect(tool_configuration.developer_key.scopes).to eq(settings['scopes'])
+        end
+
+        it 'set `target_link_uri` to developer_key.redirect_uris' do
+          expect(tool_configuration.developer_key.redirect_uris.size).to eq 1
+          expect(tool_configuration.developer_key.redirect_uris.first).to eq settings['target_link_uri']
         end
 
         context 'when a timeout occurs' do

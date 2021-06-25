@@ -104,9 +104,11 @@ describe('contentInsertion', () => {
           return {left: 0, top: 0, bottom: 0, right: 0}
         }
       },
-      execCommand: jest.fn((cmd, ui, opts) => {
+      execCommand: jest.fn((cmd, ui, value, _args) => {
         if (cmd === 'mceInsertLink') {
-          editor.content = editor.dom.createHTML('a', opts, editor.selectionContent)
+          editor.content = editor.dom.createHTML('a', value, editor.selectionContent)
+        } else if (cmd === 'mceInsertContent') {
+          editor.content = value
         }
       })
     }
@@ -260,7 +262,7 @@ describe('contentInsertion', () => {
 
     it('builds image html from image data', () => {
       contentInsertion.insertImage(editor, image)
-      expect(editor.content).toEqual('<img alt="Here Be Images" src="/some/path"/>')
+      expect(editor.content).toEqual('<img alt="Here Be Images" src="/some/path/preview"/>')
     })
 
     it('uses url if no href', () => {
@@ -276,21 +278,16 @@ describe('contentInsertion', () => {
           return 'http://bogus.edu'
         }
       }
-      const ed = {...editor}
-      ed.insertContent = content => {
-        ed.content += content
-      }
-      ed.selection.getNode = () => {
+      editor.selection.getNode = () => {
         return {...node, nodeName: 'IMG'}
       }
-      ed.selection.getRng = () => ({
+      editor.selection.getRng = () => ({
         startContainer: containerElem,
         endContainer: containerElem
       })
-
-      contentInsertion.insertImage(ed, image)
-      expect(ed.content).toEqual(
-        '<a href="http://bogus.edu" data-mce-href="http://bogus.edu"><img alt="Here Be Images" src="/some/path"/></a>'
+      contentInsertion.insertImage(editor, image)
+      expect(editor.content).toEqual(
+        '<a href="http://bogus.edu" data-mce-href="http://bogus.edu"><img alt="Here Be Images" src="/some/path/preview"/></a>'
       )
     })
   })
@@ -361,8 +358,11 @@ describe('contentInsertion', () => {
       jest.spyOn(editor, 'insertContent')
       const video = videoFromUpload()
       const result = contentInsertion.insertVideo(editor, video)
-      expect(editor.insertContent).toHaveBeenCalledWith(
-        '<iframe allow="fullscreen" allowfullscreen data-media-id="m-media-id" data-media-type="video" src="/url/to/m-media-id?type=video" style="width:400px;height:225px;display:inline-block;" title="Video player for filename.mov"></iframe>&nbsp;'
+      expect(editor.execCommand).toHaveBeenCalledWith(
+        'mceInsertContent',
+        false,
+        '<iframe allow="fullscreen" allowfullscreen data-media-id="m-media-id" data-media-type="video" src="/url/to/m-media-id?type=video" style="width:400px;height:225px;display:inline-block;" title="Video player for filename.mov"></iframe>',
+        {skip_focus: true}
       )
       expect(result).toEqual('the inserted iframe')
     })
@@ -371,14 +371,16 @@ describe('contentInsertion', () => {
       jest.spyOn(editor, 'insertContent')
       const video = videoFromTray()
       const result = contentInsertion.insertVideo(editor, video)
-      expect(editor.insertContent).toHaveBeenCalledWith(
-        '<iframe allow="fullscreen" allowfullscreen data-media-id="17" data-media-type="video" src="/media_objects_iframe/17?type=video" style="width:400px;height:225px;display:inline-block;" title="Video player for filename.mov"></iframe>&nbsp;'
+      expect(editor.execCommand).toHaveBeenCalledWith(
+        'mceInsertContent',
+        false,
+        '<iframe allow="fullscreen" allowfullscreen data-media-id="17" data-media-type="video" src="/media_objects_iframe/17?type=video" style="width:400px;height:225px;display:inline-block;" title="Video player for filename.mov"></iframe>',
+        {skip_focus: true}
       )
       expect(result).toEqual('the inserted iframe')
     })
 
     it('links video if user has made a selection', () => {
-      jest.spyOn(editor, 'execCommand')
       editor.selectionContent = 'link me'
       const video = videoFromTray()
       contentInsertion.insertVideo(editor, video)
@@ -403,21 +405,25 @@ describe('contentInsertion', () => {
     })
 
     it('inserts audio from upload into iframe', () => {
-      jest.spyOn(editor, 'insertContent')
       const audio = audioFromUpload()
       const result = contentInsertion.insertAudio(editor, audio)
-      expect(editor.insertContent).toHaveBeenCalledWith(
-        '<iframe data-media-id="m-media-id" data-media-type="audio" src="/url/to/m-media-id?type=audio" style="width:320px;height:14.25rem;display:inline-block;" title="Audio player for filename.mp3"></iframe>&nbsp;'
+      expect(editor.execCommand).toHaveBeenCalledWith(
+        'mceInsertContent',
+        false,
+        '<iframe data-media-id="m-media-id" data-media-type="audio" src="/url/to/m-media-id?type=audio" style="width:320px;height:14.25rem;display:inline-block;" title="Audio player for filename.mp3"></iframe>',
+        {skip_focus: true}
       )
       expect(result).toEqual('the inserted iframe')
     })
 
     it('inserts audio from the course content tray', () => {
-      jest.spyOn(editor, 'insertContent')
       const audio = audioFromTray()
       const result = contentInsertion.insertAudio(editor, audio)
-      expect(editor.insertContent).toHaveBeenCalledWith(
-        '<iframe data-media-id="29" data-media-type="audio" src="/media_objects_iframe?mediahref=url%2Fto%2Fcourse%2Ffile&type=audio" style="width:320px;height:14.25rem;display:inline-block;" title="Audio player for filename.mp3"></iframe>&nbsp;'
+      expect(editor.execCommand).toHaveBeenCalledWith(
+        'mceInsertContent',
+        false,
+        '<iframe data-media-id="29" data-media-type="audio" src="/media_objects_iframe?mediahref=url/to/course/file&type=audio" style="width:320px;height:14.25rem;display:inline-block;" title="Audio player for filename.mp3"></iframe>',
+        {skip_focus: true}
       )
       expect(result).toEqual('the inserted iframe')
     })

@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2011 - present Instructure, Inc.
 #
@@ -58,9 +60,9 @@ module TextHelper
     end
   end
 
-  def datetime_string(start_datetime, datetime_type=:event, end_datetime=nil, shorten_midnight=false, zone=nil)
+  def datetime_string(start_datetime, datetime_type=:event, end_datetime=nil, shorten_midnight=false, zone=nil, with_weekday: false)
     zone ||= ::Time.zone
-    presenter = Utils::DatetimeRangePresenter.new(start_datetime, end_datetime, datetime_type, zone)
+    presenter = Utils::DatetimeRangePresenter.new(start_datetime, end_datetime, datetime_type, zone, with_weekday: with_weekday)
     presenter.as_string(shorten_midnight: shorten_midnight)
   end
 
@@ -249,7 +251,7 @@ module TextHelper
   end
 
   def self.round_if_whole(value)
-    if value.is_a?(Float) && (i = value.to_i) == value
+    if value.is_a?(Float) && !value.nan? && (i = value.to_i) == value
       i
     else
       value

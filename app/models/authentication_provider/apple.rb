@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2020 - present Instructure, Inc.
 #
@@ -44,6 +46,10 @@ class AuthenticationProvider::Apple < AuthenticationProvider::OpenIDConnect
     ['sub'.freeze, 'email'.freeze].freeze
   end
   validates :login_attribute, inclusion: login_attributes
+
+  def self.recognized_params
+    super - open_id_connect_params
+  end
 
   def self.recognized_federated_attributes
     [

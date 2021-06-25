@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2017 - present Instructure, Inc.
 #
@@ -18,8 +20,6 @@
 
 module DataFixup::PopulateScoresCourseScore
   def self.run
-    Score.where(course_score: nil).in_batches do |scores|
-      scores.update_all("course_score = (grading_period_id IS NULL)")
-    end
+    Score.where(course_score: nil).in_batches.update_all("course_score = (grading_period_id IS NULL)")
   end
 end

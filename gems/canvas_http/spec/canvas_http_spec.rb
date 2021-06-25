@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2014 - present Instructure, Inc.
 #
@@ -206,22 +208,96 @@ describe "CanvasHttp" do
       expect(CanvasHttp).to receive(:insecure_host?).with("www.example.com").and_return(true)
       expect{ CanvasHttp.get("http://www.example.com/a/b") }.to raise_error(CanvasHttp::InsecureUriError)
     end
+
+    context 'when given a max_response_body_length' do
+      it 'calls .read_body_max_length() to read the body' do
+        # it's extremely hard to stub out a response with multiple chunks
+        # (webmock doesn't support it), the best we can do is check that
+        # read_body_max_length() is called and test in isolation (below)
+        stub_request(:get, "http://www.example.com/a/b").to_return(body: "Hello")
+        expect(CanvasHttp).to receive(:read_body_max_length) do |resp, max_length|
+          expect(resp).to be_a(Net::HTTPResponse)
+          expect(max_length).to eq(100)
+          resp.read_body
+        end
+        res = CanvasHttp.get("http://www.example.com/a/b", max_response_body_length: 100)
+        expect(res.body).to eq("Hello")
+      end
+
+      context 'when the response body is <= max_response_body_length' do
+        it 'should return a response with a string body' do
+          stub_request(:get, "http://www.example.com/a/b").to_return(body: "Hello" * 20)
+          res = CanvasHttp.get("http://www.example.com/a/b", max_response_body_length: 100)
+          expect(res.body).to eq("Hello" * 20)
+        end
+      end
+
+      context 'when the response body is larger than this (one chunk)' do
+        it 'should raise a ResponseTooLargeError' do
+          stub_request(:get, "http://www.example.com/a/b").to_return(body: "Hello" * 20)
+          expect do
+            CanvasHttp.get("http://www.example.com/a/b", max_response_body_length: 99)
+          end.to raise_error(CanvasHttp::ResponseTooLargeError)
+        end
+      end
+    end
+  end
+
+  describe '.read_body_max_length' do
+    context 'when the response has multiple chunks' do
+      let(:mock_response) { double('response') }
+
+      before do
+        allow(mock_response).to receive(:read_body) do |&blk|
+          20.times do
+            blk.call 'Hello'
+          end
+        end
+      end
+
+      context 'if the total response body is larger than the max length' do
+        it 'should raise a ResponseTooLargeError' do
+          expect { CanvasHttp.read_body_max_length(mock_response, 99) }.to \
+            raise_error(CanvasHttp::ResponseTooLargeError)
+        end
+      end
+
+      context 'if the total response body is <= the max length' do
+        it 'concatenates the chunks and sets the body as a string' do
+          expect(mock_response).to receive(:body=).with('Hello' * 20)
+          CanvasHttp.read_body_max_length(mock_response, 100)
+        end
+      end
+    end
   end
 
   describe '#insecure_host?' do
+    around(:each) do |example|
+      old_filters = CanvasHttp.blocked_ip_filters
+      CanvasHttp.blocked_ip_filters = -> { ['127.0.0.1/8', '42.42.42.42/16']}
+      example.call
+    ensure
+      CanvasHttp.blocked_ip_filters = old_filters
+    end
+
     it "should check for insecure hosts" do
-      begin
-        old_filters = CanvasHttp.blocked_ip_filters
-        CanvasHttp.blocked_ip_filters = -> { ['127.0.0.1/8', '42.42.42.42/16']}
-        expect(CanvasHttp.insecure_host?('example.com')).to eq false
-        expect(CanvasHttp.insecure_host?('localhost')).to eq true
-        expect(CanvasHttp.insecure_host?('127.0.0.1')).to eq true
-        expect(CanvasHttp.insecure_host?('42.42.42.42')).to eq true
-        expect(CanvasHttp.insecure_host?('42.42.1.1')).to eq true
-        expect(CanvasHttp.insecure_host?('42.1.1.1')).to eq false
-      ensure
-        CanvasHttp.blocked_ip_filters = old_filters
-      end
+      expect(CanvasHttp.insecure_host?('example.com')).to eq false
+      expect(CanvasHttp.insecure_host?('localhost')).to eq true
+      expect(CanvasHttp.insecure_host?('127.0.0.1')).to eq true
+      expect(CanvasHttp.insecure_host?('42.42.42.42')).to eq true
+      expect(CanvasHttp.insecure_host?('42.42.1.1')).to eq true
+      expect(CanvasHttp.insecure_host?('42.1.1.1')).to eq false
+    end
+
+    it "raises an error when URL is not resolveable" do
+      bad_url = 'this-should-never-be-a-real-url-registered-by-anyone.fake-tld'
+      expect{ CanvasHttp.insecure_host?(bad_url) }.to raise_error(CanvasHttp::UnresolvableUriError)
+    end
+
+    it "won't continue to process a host with no valid IPs" do
+      bad_url = 'this-should-never-be-a-real-url-registered-by-anyone.fake-tld'
+      expect(Resolv).to receive(:getaddresses).with(bad_url).and_return(["not.an.ip.address"])
+      expect{ CanvasHttp.insecure_host?(bad_url) }.to raise_error(CanvasHttp::UnresolvableUriError)
     end
   end
 

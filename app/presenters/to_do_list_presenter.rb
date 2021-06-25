@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2015 - present Instructure, Inc.
 #
@@ -59,7 +61,7 @@ class ToDoListPresenter
 
   def assignments_needing(type, opts = {})
     if @user
-      @user.send("assignments_needing_#{type}", {contexts: @contexts, limit: ASSIGNMENT_LIMIT}.merge(opts)).map do |assignment|
+      @user.send("assignments_needing_#{type}", **{contexts: @contexts, limit: ASSIGNMENT_LIMIT}.merge(opts)).map do |assignment|
         AssignmentPresenter.new(@view, assignment, @user, type)
       end
     else

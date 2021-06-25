@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2011 - present Instructure, Inc.
 #
@@ -275,9 +277,6 @@ describe "ListTest" do
   end
 
   class Mixin < ActiveRecord::Base
-    def self.nulls(first_or_last, column, direction = nil)
-      "#{column} IS#{' NOT' unless first_or_last == :last} NULL, #{column} #{direction.to_s.upcase}".strip
-    end
   end
 
   class ListMixin < Mixin

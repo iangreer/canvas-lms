@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2020 - present Instructure, Inc.
 #
@@ -17,6 +19,8 @@
 #
 
 class Mutations::CreateOutcomeCalculationMethod < Mutations::OutcomeCalculationMethodBase
+  include GraphQLHelpers::ContextFetcher
+
   graphql_name "CreateOutcomeCalculationMethod"
 
   # input arguments
@@ -25,7 +29,11 @@ class Mutations::CreateOutcomeCalculationMethod < Mutations::OutcomeCalculationM
   argument :calculation_method, String, required: true
   argument :calculation_int, Integer, required: false
 
+  VALID_CONTEXTS = %w[Account Course].freeze
+
   def resolve(input:)
-    upsert(input)
+    context = context_fetcher(input, VALID_CONTEXTS)
+    check_permission(context)
+    upsert(input, context: context)
   end
 end

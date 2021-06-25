@@ -1,3 +1,4 @@
+# frozen_string_literal: true
 
 # Copyright (C) 2019 - present Instructure, Inc.
 
@@ -46,7 +47,6 @@ describe "analytics in Canvas" do
         :name => "First Student",
         :active_all => true
       ).user
-      @admin.account.enable_feature!(:student_context_cards)
     end
 
     describe "student context tray for teacher role" do

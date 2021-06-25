@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2014 - present Instructure, Inc.
 #
@@ -33,6 +35,20 @@ describe FilePreviewsController do
     course_model
     attachment_model
     get :show, params: {course_id: @course.id, file_id: @attachment.id}
+    expect(response.status).to eq 401
+  end
+
+  it 'should accept a valid verifier token' do
+    course_model
+    attachment_model
+    get :show, params: {course_id: @course.id, file_id: @attachment.id, verifier: @attachment.uuid}
+    expect(response.status).to eq 200
+  end
+
+  it 'should not accept an invalid verifier token' do
+    course_model
+    attachment_model
+    get :show, params: {course_id: @course.id, file_id: @attachment.id, verifier: 'nope'}
     expect(response.status).to eq 401
   end
 

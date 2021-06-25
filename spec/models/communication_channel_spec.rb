@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2011 - present Instructure, Inc.
 #
@@ -19,6 +21,10 @@
 require File.expand_path(File.dirname(__FILE__) + '/../sharding_spec_helper')
 
 describe CommunicationChannel do
+  before(:once) do
+    Messages::Partitioner.process
+  end
+
   before(:each) do
     @pseudonym = double('Pseudonym')
     allow(@pseudonym).to receive(:destroyed?).and_return(false)
@@ -27,6 +33,59 @@ describe CommunicationChannel do
 
   it "should create a new instance given valid attributes" do
     factory_with_protected_attributes(CommunicationChannel, communication_channel_valid_attributes)
+  end
+
+  describe '::trusted_confirmation_redirect?' do
+    before do
+      @cc_redirect_trust_policies = CommunicationChannel.instance_variable_get(:@redirect_trust_policies)
+      CommunicationChannel.instance_variable_set(:@redirect_trust_policies, nil)
+    end
+
+    after do
+      CommunicationChannel.instance_variable_set(:@redirect_trust_policies, @cc_redirect_trust_policies)
+    end
+
+    let(:account) { double('Account') }
+    let(:url) { 'http://some.place' }
+
+    it 'should be falsey by default' do
+      expect(CommunicationChannel.trusted_confirmation_redirect?(account, url)).to be_falsey
+    end
+
+    it 'should be falsey if no policies return true' do
+      CommunicationChannel.add_confirmation_redirect_trust_policy { false }
+
+      expect(CommunicationChannel.trusted_confirmation_redirect?(account, url)).to be_falsey
+    end
+
+    it 'should be truthy if any given policy returns true' do
+      CommunicationChannel.add_confirmation_redirect_trust_policy { false }
+      CommunicationChannel.add_confirmation_redirect_trust_policy { true }
+
+      expect(CommunicationChannel.trusted_confirmation_redirect?(account, url)).to be_truthy
+    end
+
+    it 'should be falsey for non-http(s) URLs' do
+      CommunicationChannel.add_confirmation_redirect_trust_policy { true }
+
+      mailto = 'mailto:bill@microsoft.net'
+      expect(CommunicationChannel.trusted_confirmation_redirect?(account, mailto)).to be_falsey
+    end
+
+    it 'should pass the given params to the policies' do
+      root_account_param = nil
+      uri_param = nil
+
+      CommunicationChannel.add_confirmation_redirect_trust_policy do |root_account, uri|
+        root_account_param = root_account
+        uri_param = uri
+      end
+
+      CommunicationChannel.trusted_confirmation_redirect?(account, url)
+
+      expect(root_account_param).to eq(account)
+      expect(uri_param).to eq(URI(url))
+    end
   end
 
   describe 'imported?' do
@@ -90,6 +149,27 @@ describe CommunicationChannel do
     expect(@cc.confirmation_code).to eql('abc123')
   end
 
+  it "should not increment confirmation_sent_count on bouncing channel" do
+    account = Account.create!
+    cc = communication_channel_model(
+      path: 'foo@bar.edu',
+      last_bounce_at: '2015-01-01T01:01:01.000Z',
+      last_suppression_bounce_at: '2015-03-03T03:03:03.000Z',
+      last_transient_bounce_at: '2015-04-04T04:04:04.000Z',
+      updated_at: '2015-04-04T04:04:04.000Z'
+    )
+    CommunicationChannel.bounce_for_path(
+      path: 'foo@bar.edu',
+      timestamp: '2015-02-02T02:02:02.000Z',
+      details: nil,
+      permanent_bounce: true,
+      suppression_bounce: false
+    )
+    conf_count = cc.reload.confirmation_sent_count
+    cc.send_confirmation!(account)
+    expect(cc.reload.confirmation_sent_count).to eq conf_count
+  end
+
   it "should be able to reset a confirmation code" do
     communication_channel_model
     old_cc = @cc.confirmation_code
@@ -105,6 +185,18 @@ describe CommunicationChannel do
       cc.forgot_password!
       cc.forgot_password!
     end
+  end
+
+  it "should not update cache if workflow_state doesn't change" do
+    cc = communication_channel_model
+    expect(cc.user).to receive(:clear_email_cache!).never
+    cc.save!
+  end
+
+  it "should update cache if workflow_state does change" do
+    cc = communication_channel_model
+    expect(cc.user).to receive(:clear_email_cache!).once
+    cc.destroy
   end
 
   it "should use a 15-digit confirmation code for default or email path_type settings" do
@@ -149,6 +241,12 @@ describe CommunicationChannel do
     user = User.create!
     invalid_stuff = {username: "invalid", user: user, pseudonym_id: "1" }
     expect{communication_channel(user, invalid_stuff)}.to raise_error(ActiveRecord::RecordInvalid)
+  end
+
+  it 'should limit quantity of channels a user can have' do
+    Setting.set('max_ccs_per_user', '3')
+    user = User.create!(name: 'jim halpert')
+    expect { 5.times { |i| communication_channel(user, username: "user_#{user.id}_#{i}@example.com") } }.to raise_error(ActiveRecord::RecordInvalid)
   end
 
   it "should act as list" do
@@ -344,7 +442,7 @@ describe CommunicationChannel do
     end
 
     describe ".bounce_for_path" do
-      it "flags paths with too many bounces" do
+      it "flags paths with too many bounces and doesn't process subsequent bounces" do
         @cc1 = communication_channel_model(path: 'not_as_bouncy@example.edu')
         @cc2 = communication_channel_model(path: 'bouncy@example.edu')
 
@@ -363,7 +461,7 @@ describe CommunicationChannel do
         expect(@cc1.bouncing?).to be_falsey
 
         @cc2.reload
-        expect(@cc2.bounce_count).to eq 5
+        expect(@cc2.bounce_count).to eq 1
         expect(@cc2.bouncing?).to be_truthy
       end
 
@@ -372,7 +470,8 @@ describe CommunicationChannel do
           path: 'foo@bar.edu',
           last_bounce_at: '2015-01-01T01:01:01.000Z',
           last_suppression_bounce_at: '2015-03-03T03:03:03.000Z',
-          last_transient_bounce_at: '2015-04-04T04:04:04.000Z'
+          last_transient_bounce_at: '2015-04-04T04:04:04.000Z',
+          updated_at: '2015-04-04T04:04:04.000Z'
         )
         CommunicationChannel.bounce_for_path(
           path: 'foo@bar.edu',
@@ -393,7 +492,8 @@ describe CommunicationChannel do
           path: 'foo@bar.edu',
           last_bounce_at: '2015-01-01T01:01:01.000Z',
           last_suppression_bounce_at: '2015-03-03T03:03:03.000Z',
-          last_transient_bounce_at: '2015-04-04T04:04:04.000Z'
+          last_transient_bounce_at: '2015-04-04T04:04:04.000Z',
+          updated_at: '2015-04-04T04:04:04.000Z'
         )
         CommunicationChannel.bounce_for_path(
           path: 'foo@bar.edu',
@@ -414,7 +514,8 @@ describe CommunicationChannel do
           path: 'foo@bar.edu',
           last_bounce_at: '2015-01-01T01:01:01.000Z',
           last_suppression_bounce_at: '2015-03-03T03:03:03.000Z',
-          last_transient_bounce_at: '2015-04-04T04:04:04.000Z'
+          last_transient_bounce_at: '2015-04-04T04:04:04.000Z',
+          updated_at: '2015-04-04T04:04:04.000Z'
         )
         CommunicationChannel.bounce_for_path(
           path: 'foo@bar.edu',
@@ -443,6 +544,51 @@ describe CommunicationChannel do
         cc.reload
         expect(cc.last_bounce_details).to eq('some' => 'details', 'foo' => 'bar')
         expect(cc.last_transient_bounce_details).to be_nil
+      end
+
+      it "won't bounce twice in a row" do
+        cc = communication_channel_model(path: 'foo@bar.edu')
+        bounce_action = lambda do
+          CommunicationChannel.bounce_for_path(
+            path: cc.path,
+            timestamp: Time.zone.now,
+            details: { 'some' => 'details'},
+            permanent_bounce: false,
+            suppression_bounce: false
+          )
+        end
+        expect { bounce_action.call() }.to change {
+          cc.reload.last_transient_bounce_at
+        }
+        expect { bounce_action.call() }.to not_change {
+          cc.reload.last_transient_bounce_at
+        }
+        Timecop.travel(3.hours) do
+          expect { bounce_action.call() }.to change {
+            cc.reload.last_transient_bounce_at
+          }
+        end
+      end
+
+      it 'accounts for current callbacks in bulk bouncer' do
+        # If you hit this spec failure, you changed the callbacks that have been
+        # checked in the communication_channel save. Make sure that it is not an
+        # action that would need to happen for the bounce_for_path method. If it
+        # does not need to happen, add it to the list below. If it does, handle
+        # that, then add it to the list here.
+        accounted_for_callbacks = %i(
+          after_save_collection_association
+          assert_path_type
+          autosave_associated_records_for_pseudonym
+          autosave_associated_records_for_user
+          before_save_collection_association
+          broadcast_notifications
+          clear_user_email_cache
+          consider_building_pseudonym
+          set_confirmation_code
+          set_root_account_ids
+        )
+        expect(CommunicationChannel._save_callbacks.collect(&:filter).select {|k| k.is_a? Symbol} - accounted_for_callbacks).to eq []
       end
 
       it "stores the details of the last soft bounce" do
@@ -490,51 +636,23 @@ describe CommunicationChannel do
 
         before { user.update_columns(root_account_ids: root_account_ids) }
 
-        context 'when the user belongs to a foreign shard' do
-          let(:user) { @shard2.activate { User.create! } }
+        let(:user) { User.create! }
 
-          before(:each) do
-            shadow_user = User.create
-            shadow_user.update_attribute(:id, user.global_id)
-          end
+        context 'is associated with root accounts on a foreign shard' do
+          let(:globalized_ids) { [Shard.global_id_for(1, @shard2), Shard.global_id_for(2, @shard2)] }
+          let(:root_account_ids) { globalized_ids }
 
-          context 'and is associated with root accounts on the foreign shard' do
-            let(:root_account_ids) { [1, 2] }
-
-            it 'globalizes the foreign root_account_ids' do
-              expect(subject).to match_array root_account_ids.map { |id| Shard.global_id_for(id, user.shard) }
-            end
-          end
-
-          context 'and is associated with root accounts on the local shard' do
-            let(:localized_ids) { [1, 2] }
-            let(:root_account_ids) { localized_ids.map { |id| Shard.global_id_for(id, Shard.current) } }
-
-            it 'localizes the local root_account_ids' do
-              expect(subject).to match_array localized_ids
-            end
+          it 'keeps the root account IDs global' do
+            expect(subject).to match_array globalized_ids
           end
         end
 
-        context 'when the user belongs to the local shard' do
-          let(:user) { User.create! }
+        context 'is associated with root accounts on the local shard' do
+          let(:localized_ids) { [1, 2] }
+          let(:root_account_ids) { localized_ids }
 
-          context 'and is associated with root accounts on a foreign shard' do
-            let(:globalized_ids) { [Shard.global_id_for(1, @shard2), Shard.global_id_for(2, @shard2)] }
-            let(:root_account_ids) { globalized_ids }
-
-            it 'keeps the root account IDs global' do
-              expect(subject).to match_array globalized_ids
-            end
-          end
-
-          context 'and is associated with root accounts on the local shard' do
-            let(:localized_ids) { [1, 2] }
-            let(:root_account_ids) { localized_ids }
-
-            it 'keeps the root account IDs local' do
-              expect(subject).to match_array localized_ids
-            end
+          it 'keeps the root account IDs local' do
+            expect(subject).to match_array localized_ids
           end
         end
       end
@@ -572,6 +690,7 @@ describe CommunicationChannel do
 
       describe ".bounce_for_path" do
         it "flags paths with too many bounces" do
+          stub_const("CommunicationChannel::RETIRE_THRESHOLD", 3)
           @cc1 = communication_channel_model(path: 'not_as_bouncy@example.edu')
           @shard1.activate do
             @cc2 = communication_channel_model(path: 'bouncy@example.edu')
@@ -598,11 +717,11 @@ describe CommunicationChannel do
           expect(@cc1.bouncing?).to be_falsey
 
           @cc2.reload
-          expect(@cc2.bounce_count).to eq 5
+          expect(@cc2.bounce_count).to eq 3
           expect(@cc2.bouncing?).to be_truthy
 
           @cc3.reload
-          expect(@cc3.bounce_count).to eq 5
+          expect(@cc3.bounce_count).to eq 3
           expect(@cc3.bouncing?).to be_truthy
         end
       end
@@ -619,6 +738,7 @@ describe CommunicationChannel do
     it "sends directly via SMS if configured" do
       expect(cc.e164_path).to eq '+18015555555'
       account = double()
+      expect(Account.site_admin).to_not receive(:feature_enabled?).with(:deprecate_sms)
       allow(account).to receive(:feature_enabled?).and_return(true)
       allow(account).to receive(:global_id).and_return('totes_an_ID')
       expect(Services::NotificationService).to receive(:process).with(

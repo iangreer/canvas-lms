@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2015 - present Instructure, Inc.
 #
@@ -26,7 +28,7 @@ class AuthenticationProvider::Clever < AuthenticationProvider::Oauth2
   end
 
   def self.recognized_params
-    [ :login_attribute, :district_id, :jit_provisioning ].freeze
+    super + [ :login_attribute, :district_id, :jit_provisioning ].freeze
   end
 
   def self.login_attributes

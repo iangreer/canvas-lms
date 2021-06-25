@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2018 - present Instructure, Inc.
 #
@@ -29,6 +31,20 @@ module FeatureFlagHelper
     else
       contexts.each do |context|
         set_feature_flag_on_context(feature_flag, value, context)
+      end
+    end
+  end
+
+  # feature_enabled? raises an error if the flag isn't defined, but flags
+  # aren't autodefined in specs. this mock returns false if the flag
+  # isn't defined, so specs can do what they want
+  def silence_undefined_feature_flag_errors
+    [Account, Course, User].each do |model|
+      original_method = model.instance_method(:lookup_feature_flag)
+      allow_any_instance_of(model).to receive(:lookup_feature_flag) do |m, feature, **kwargs|
+        original_method.bind(m).call(feature, **kwargs)
+      rescue
+        nil
       end
     end
   end

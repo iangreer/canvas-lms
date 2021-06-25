@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2017 - present Instructure, Inc.
 #
@@ -35,7 +37,7 @@ describe DataFixup::InitAccountIndexForCourseAuditLog do
   ).freeze
 
   before(:each) do
-    @database = Canvas::Cassandra::DatabaseBuilder.from_config(:auditors)
+    @database = CanvasCassandra::DatabaseBuilder.from_config(:auditors)
     skip("requires cassandra auditors") unless @database
 
     course_factory

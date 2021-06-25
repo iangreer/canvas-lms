@@ -20,22 +20,13 @@
 @import "base/mixins/misc";
 
 /* header */
-.header-bar-right {
-  margin-bottom: $ic-sp;  // the buttons need some space between the input
-}
-
-#edit_assignment_header-cr {
-  padding: 0;
-  border: none;
+.assignment-edit-header {
+  margin-bottom: 12px;
 }
 
 #edit-assignment-header-cr-tab-nav {
   display: flex;
   align-items: flex-end;
-}
-
-#edit-assignment-header-cr-spacer {
-  flex: 1;
 }
 
 #assignment-draft-state-cr {
@@ -108,7 +99,7 @@ div.form-column-right, div.overrides-column-right {
     border-color: #ccc;
     padding: 15px 0px;
     margin-top: 20px;
-    select, .subtitle {
+    select, input[type=text], .subtitle {
       margin-#{direction(left)}: 15px;
     }
   }
@@ -227,6 +218,13 @@ div.form-column-right, div.overrides-column-right {
   #assignment_points_possible[readonly] { // points possible
     margin-top: -3px;   // because it sits too low
   }
+  #assignment_annotated_document_info {
+    color: $ic-hint-text;
+    margin-inline-start: 42px;
+    margin-inline-end: 8px;
+    margin-block-end: 8px;
+    @include fontSize(14px);
+  }
 }
 
 
@@ -241,10 +239,10 @@ div.form-column-right, div.overrides-column-right {
 
   // File inputs can take up 205px of width as of this comment. Issues can arise
   // when width: auto; was set by bootstrap. This fixes the file input from
-  // creating a horizontal scrollbar. 
+  // creating a horizontal scrollbar.
   @media (max-width: 400px) {
     input[type="file"] {
-      width: 100%; 
+      width: 100%;
     }
   }
 }
@@ -365,6 +363,40 @@ div.form-column-right, div.overrides-column-right {
           margin-top: 0px;
         }
       }
+    }
+  }
+}
+
+#assignment_submission_type_selection_tool_launch_container {
+  h2 {
+    font-size: 1.3rem;
+  }
+  h3 {
+    font-size: 1.1rem;
+  }
+}
+
+.UsageRightsSelectBox__container.edit-view {
+  .control-group {
+    margin-bottom: 0;
+
+    .controls {
+      margin-#{direction(left)}: auto;
+
+    }
+
+    label.control-label {
+      padding: direction-sides(10px 0px 10px 0px);
+      margin-#{direction(left)}: 15px;
+      text-align: #{direction(left)};
+      margin-bottom: 0;
+      font-weight: bold;
+      width: auto;
+      float: initial;
+    }
+
+    label.control-label:hover {
+      background: none;
     }
   }
 }

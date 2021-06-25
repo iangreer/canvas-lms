@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2015 - present Instructure, Inc.
 #
@@ -48,7 +50,7 @@ describe "new groups" do
       f('.btn.add-group').click
       wait_for_ajaximations
       f('#group_name').send_keys("Test Group")
-      f('#groupEditSaveButton').click
+      submit_form("span[aria-label='Add Group']")
       wait_for_ajaximations
       expect(fj('.collectionViewItems.unstyled.groups-list>li:last-child')).to include_text("Test Group")
     end
@@ -721,7 +723,6 @@ describe "new groups" do
         end
 
         it "should clone group set when moving a student from a group to a group with submission" do
-          skip('ADMIN-880')
           group_test_setup(2,1,2)
           # add second student to second test group
           add_user_to_group(@students.last,@testgroup.last)
@@ -742,7 +743,6 @@ describe "new groups" do
         end
 
         it "should clone group set when moving a student from a group with submission to a group" do
-          skip('ADMIN-880')
           group_test_setup(2,1,2)
           add_user_to_group(@students.last,@testgroup.last)
           create_and_submit_assignment_from_group(@students.last)
@@ -1006,7 +1006,7 @@ describe "new groups" do
 
           select_change_groups_option
 
-          expect(f('.progressbar')).to be_displayed
+          expect(f('.progress-container')).to be_displayed
         end
 
         context "dragging and dropping a student" do
@@ -1085,6 +1085,17 @@ describe "new groups" do
           end
         end
       end
+    end
+  end
+
+  context "as a teacher without editing groups permissions" do
+    it "shouldn't allow teachers to add a group set if they don't have the permission" do
+      course_with_teacher_logged_in
+      @course.account.role_overrides.create!(permission: :manage_groups, role: teacher_role, enabled: false)
+
+      get "/courses/#{@course.id}/groups"
+
+      expect(f('.ic-Layout-contentMain')).not_to contain_css("button[title='Add Group Set']")
     end
   end
 end

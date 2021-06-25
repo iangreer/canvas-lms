@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2018 - present Instructure, Inc.
 #
@@ -23,7 +25,6 @@ describe "permissions index" do
 
   before :once do
     @account = Account.default
-    @account.enable_feature!(:granular_permissions_wiki_pages)
     @subaccount = Account.create!(name: "subaccount", parent_account_id: @account.id)
     account_admin_user
   end
@@ -134,19 +135,12 @@ describe "permissions index" do
         expect(r).to be_empty
       end
 
-      context "with granular permissions enabled" do
-        let(:set_granular_permission) do
-          @account.enable_feature!(:granular_permissions_wiki_pages)
-        end
-
-        it "autoscrolls so expanded granular permissions are visible" do
-          set_granular_permission
-          PermissionsIndex.visit(@account)
-          PermissionsIndex.expand_manage_wiki
-          expect(PermissionsIndex.permission_link('manage_wiki_create')).to be_displayed
-          expect(PermissionsIndex.permission_link('manage_wiki_delete')).to be_displayed
-          expect(PermissionsIndex.permission_link('manage_wiki_update')).to be_displayed
-        end
+      it "autoscrolls so expanded granular permissions are visible" do
+        PermissionsIndex.visit(@account)
+        PermissionsIndex.expand_manage_wiki
+        expect(PermissionsIndex.permission_link('manage_wiki_create')).to be_displayed
+        expect(PermissionsIndex.permission_link('manage_wiki_delete')).to be_displayed
+        expect(PermissionsIndex.permission_link('manage_wiki_update')).to be_displayed
       end
     end
 
@@ -193,10 +187,21 @@ describe "permissions index" do
       expect(f('#content')).not_to contain_css(PermissionsIndex.role_link_css("Teacher"))
     end
 
-    it "search by permission name works correctly" do
-      PermissionsIndex.enter_search("Course State")
-      expect(PermissionsIndex.permission_link("change_course_state")).to be_displayed
-      expect(f('#content')).not_to contain_css("#permission_manage_interaction_alerts")
+    it 'search by permission name works correctly' do
+      PermissionsIndex.enter_search('Manage Pages')
+      expect(PermissionsIndex.permission_link('manage_wiki')).to be_displayed
+      expect(f('#content')).not_to contain_css('#permission_manage_interaction_alerts')
+    end
+
+    it 'search by permission filters according to course / account context type' do
+      PermissionsIndex.enter_search('SIS Data')
+      expect { PermissionsIndex.permissions_tray_viewable_permissions.count }.to become 1
+      PermissionsIndex.choose_tab('account')
+      wait_for_ajaximations
+      PermissionsIndex.enter_search('SIS Data')
+      expect { PermissionsIndex.permissions_tray_viewable_permissions.count }.to become 3
+      PermissionsIndex.enter_search('')
+      expect { PermissionsIndex.permissions_tray_viewable_permissions.count }.to become > 3
     end
   end
 end

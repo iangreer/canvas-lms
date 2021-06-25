@@ -1,44 +1,10 @@
+# frozen_string_literal: true
+
 require 'json'
 
 namespace :js do
-
-  desc "Build client_apps"
-  task :build_client_apps do
-    require 'config/initializers/client_app_symlinks'
-
-    npm_install = ENV["COMPILE_ASSETS_NPM_INSTALL"] != "0"
-
-    Dir.glob('./client_apps/*/').each do |app_dir|
-      app_name = File.basename(app_dir)
-
-      Dir.chdir(app_dir) do
-        puts "Building client app '#{app_name}'"
-
-        if npm_install && File.exists?('./package.json')
-          output = system 'yarn install --pure-lockfile || yarn install --pure-lockfile --network-concurrency 1'
-          unless $?.exitstatus == 0
-            puts "INSTALL FAILURE:\n#{output}"
-            raise "Package installation failure for client app #{app_name}"
-          end
-        end
-
-        puts "\tRunning 'yarn run build'..."
-        output = `./script/build`
-        unless $?.exitstatus == 0
-          puts "BUILD FAILURE:\n#{output}"
-          raise "Build script failed for client app #{app_name}"
-        end
-
-        puts "Client app '#{app_name}' was built successfully."
-      end
-    end
-
-    maintain_client_app_symlinks
-  end
-
   desc "Build development webpack js"
   task :webpack_development do
-    require 'config/initializers/plugin_symlinks'
     puts "--> Building DEVELOPMENT webpack bundles"
     system "yarn run webpack-development"
     raise "Error running js:webpack_development: \nABORTING" if $?.exitstatus != 0
@@ -46,7 +12,6 @@ namespace :js do
 
   desc "Build production webpack js"
   task :webpack_production do
-    require 'config/initializers/plugin_symlinks'
     puts "--> Building PRODUCTION webpack bundles"
     system "yarn run webpack-production"
     raise "Error running js:webpack_production: \nABORTING" if $?.exitstatus != 0
@@ -55,10 +20,25 @@ namespace :js do
   desc "Ensure up-to-date node environment"
   task :yarn_install do
     puts "node is: #{`node -v`.strip} (#{`which node`.strip})"
-    system 'yarn install --pure-lockfile || yarn install --pure-lockfile --network-concurrency 1'
+
+    # --production=false so that it still installs devDependencies as they are
+    # needed for post-installation steps (like wsrun)
+    #
+    #  see https://classic.yarnpkg.com/en/docs/cli/install#toc-yarn-install-production-true-false
+    yarnopts = '--frozen-lockfile --pure-lockfile --production=false'
+
+    system "yarn install #{yarnopts} || yarn install #{yarnopts} --network-concurrency 1"
     unless $?.success?
       raise 'error running yarn install'
     end
   end
 
+  desc "Revision static assets"
+  task :gulp_rev do
+    system 'yarn run gulp rev'
+
+    unless $?.success?
+      raise 'error running gulp rev'
+    end
+  end
 end

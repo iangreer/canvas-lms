@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2011 - present Instructure, Inc.
 #
@@ -272,7 +274,7 @@ class ConferencesController < ApplicationController
     }
     log_asset_access([ "conferences", @context ], "conferences", "other")
 
-    Shackles.activate(:slave) do
+    GuardRail.activate(:secondary) do
       @render_alternatives = WebConference.conference_types(@context).all? { |ct| ct[:replace_with_alternatives] }
       case @context
       when Course
@@ -295,8 +297,7 @@ class ConferencesController < ApplicationController
       conference_type_details: conference_types_json(WebConference.conference_types(@context)),
       users: @users.map { |u| {:id => u.id, :name => u.last_name_first} },
       can_create_conferences: @context.grants_right?(@current_user, session, :create_conferences),
-      render_alternatives: @render_alternatives,
-      current_account_name: @context.root_account.name
+      render_alternatives: @render_alternatives
     )
     set_tutorial_js_env
     flash[:error] = t('Some conferences on this page are hidden because of errors while retrieving their status') if @errors

@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2011 - present Instructure, Inc.
 #
@@ -33,12 +35,12 @@ module SIS
         CourseSection.where(:id => batch).update_all(:sis_batch_id => @batch.id)
       end
       # there could be a ton of deleted sections, and it would be really slow to do a normal find_each
-      # that would order by id. So do it on the slave, to force a cursor that avoids the sort so that
+      # that would order by id. So do it on the secondary, to force a cursor that avoids the sort so that
       # it can run really fast
-      Shackles.activate(:slave) do
+      GuardRail.activate(:secondary) do
         # ideally we change this to find_in_batches, and call (the currently non-existent) Enrollment.destroy_batch
         Enrollment.where(course_section_id: importer.deleted_section_ids.to_a).active.find_in_batches do |enrollments|
-          Shackles.activate(:master) do
+          GuardRail.activate(:primary) do
             new_data = Enrollment::BatchStateUpdater.destroy_batch(enrollments, sis_batch: @batch)
             importer.roll_back_data.push(*new_data)
             SisBatchRollBackData.bulk_insert_roll_back_data(importer.roll_back_data)
@@ -98,13 +100,13 @@ module SIS
               # but the course id we were given didn't match the crosslist info
               # we have, so, uncrosslist and move
               @course_ids_to_update_associations.merge [course.id, section.course_id, section.nonxlist_course_id]
-              section.uncrosslist(run_jobs_immediately: true)
-              section.move_to_course(course, run_jobs_immediately: true)
+              section.uncrosslist
+              section.move_to_course(course)
             end
           elsif !section.stuck_sis_fields.include?(:course_id)
             # this section isn't crosslisted and lives on the wrong course. move
             @course_ids_to_update_associations.merge [section.course_id, course.id]
-            section.move_to_course(course, run_jobs_immediately: true)
+            section.move_to_course(course)
           end
         end
         if section.course_id_changed?

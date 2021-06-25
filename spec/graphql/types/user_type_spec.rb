@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2017 - present Instructure, Inc.
 #
@@ -16,7 +18,7 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
-require File.expand_path(File.dirname(__FILE__) + '/../../spec_helper')
+require 'spec_helper'
 require_relative "../graphql_spec_helper"
 
 describe Types::UserType do
@@ -33,6 +35,7 @@ describe Types::UserType do
     @course = course
     @student = student
     @teacher = teacher
+    @ta = ta_in_course(active_all: true).user
   end
 
   let(:user_type) do
@@ -115,18 +118,34 @@ describe Types::UserType do
       )
     end
 
-    let(:admin) { account_admin_user }
-    let(:user_type_as_admin) do
-      GraphQLTypeTester.new(@student, current_user: admin, domain_root_account: @course.account.root_account,
-        request: ActionDispatch::TestRequest.create)
+    context 'as admin' do
+      let(:admin) { account_admin_user }
+      let(:user_type_as_admin) do
+        GraphQLTypeTester.new(@student, current_user: admin, domain_root_account: @course.account.root_account,
+          request: ActionDispatch::TestRequest.create)
+      end
+
+      it "returns the sis user id if the user has permissions to read it" do
+        expect(user_type_as_admin.resolve("sisId")).to eq "a.ham"
+      end
+
+      it "returns nil if the user does not have permission to read the sis user id" do
+        account_admin_user_with_role_changes(role_changes: {read_sis: false, manage_sis: false})
+        admin_type = GraphQLTypeTester.new(@student, current_user: @admin, domain_root_account: @course.account.root_account,
+          request: ActionDispatch::TestRequest.create)
+        expect(admin_type.resolve("sisId")).to be_nil
+      end
     end
 
-    it "returns the sis user id if the user has permissions to read it" do
-      expect(user_type_as_admin.resolve("sisId")).to eq "a.ham"
-    end
+    context 'as teacher' do
+      it 'returns the sis user id if the user has permissions to read it' do
+        expect(user_type.resolve("sisId")).to eq "a.ham"
+      end
 
-    it "returns null if the user does not have permission to read the sis user id" do
-      expect(user_type.resolve("sisId")).to be_nil
+      it 'returns null if the user does not have permission to read the sis user id' do
+        @teacher.enrollments.find_by(course: @course).role.role_overrides.create!(permission: 'read_sis', enabled: false, account: @course.account)
+        expect(user_type.resolve("sisId")).to be_nil
+      end
     end
   end
 
@@ -159,6 +178,19 @@ describe Types::UserType do
       ).to match_array @student.enrollments.map(&:to_param)
     end
 
+    it "excludes deleted course enrollments for a user" do
+      @course1.enroll_student(@student, enrollment_state: "active")
+      @course2.destroy
+
+      site_admin_user
+      expect(
+        user_type.resolve(
+          "enrollments { _id }",
+          current_user: @admin
+        )
+      ).to eq [@student.enrollments.first.to_param]
+    end
+
     it "doesn't return enrollments for courses the user doesn't have permission for" do
       expect(
         user_type.resolve(%|enrollments(courseId: "#{@course2.id}") { _id }|)
@@ -176,23 +208,32 @@ describe Types::UserType do
       )
     end
 
-    let!(:account_user) do
-      AccountUser.create!(
-        account: @teacher.account,
-        user: @teacher,
-        role: teacher_role
-      )
-    end
+    let!(:admin) { account_admin_user }
 
     before(:once) do
       @student.update! email: "cooldude@example.com"
     end
 
-    it "returns email for teachers/admins" do
+    it 'returns email for admins' do
+      admin_tester = GraphQLTypeTester.new(
+        @student,
+        current_user: admin,
+        domain_root_account: @course.account.root_account,
+        request: ActionDispatch::TestRequest.create
+      )
+
+      expect(admin_tester.resolve("email")).to eq @student.email
+
+      # this is for the cached branch
+      allow(@student).to receive(:email_cached?).and_return(true)
+      expect(admin_tester.resolve("email")).to eq @student.email
+    end
+
+    it "returns email for teachers" do
       expect(user_type.resolve("email")).to eq @student.email
 
       # this is for the cached branch
-      allow(@student).to receive(:email_cached?) { true }
+      allow(@student).to receive(:email_cached?).and_return(true)
       expect(user_type.resolve("email")).to eq @student.email
     end
 
@@ -275,4 +316,371 @@ describe Types::UserType do
       ).to eq 0
     end
   end
+
+  context 'conversations' do
+    it 'returns conversations for the user' do
+      c = conversation(@student, @teacher)
+      type = GraphQLTypeTester.new(@student, current_user: @student, domain_root_account: @student.account, request: ActionDispatch::TestRequest.create)
+      expect(
+        type.resolve('conversationsConnection { nodes { conversation { conversationMessagesConnection { nodes { body } } } } }')[0][0]
+      ).to eq c.conversation.conversation_messages.first.body
+    end
+
+    it 'has createdAt field for conversationMessagesConnection' do
+      Timecop.freeze do
+        c = conversation(@student, @teacher)
+        type = GraphQLTypeTester.new(@student, current_user: @student, domain_root_account: @student.account, request: ActionDispatch::TestRequest.create)
+        expect(
+          type.resolve('conversationsConnection { nodes { conversation { conversationMessagesConnection { nodes { createdAt } } } } }')[0][0]
+        ).to eq c.conversation.conversation_messages.first.created_at.iso8601
+      end
+    end
+
+    it 'has updatedAt field for conversations and conversationParticipants' do
+      Timecop.freeze do
+        convo = conversation(@student, @teacher)
+        type = GraphQLTypeTester.new(@student, current_user: @student, domain_root_account: @student.account, request: ActionDispatch::TestRequest.create)
+        res_node = type.resolve('conversationsConnection { nodes { updatedAt }}')[0]
+        expect(res_node).to eq convo.conversation.conversation_participants.first.updated_at.iso8601
+      end
+    end
+
+    it 'has updatedAt field for conversationParticipantsConnection' do
+      Timecop.freeze do
+        convo = conversation(@student, @teacher)
+        type = GraphQLTypeTester.new(@student, current_user: @student, domain_root_account: @student.account, request: ActionDispatch::TestRequest.create)
+        res_node = type.resolve('conversationsConnection { nodes { conversation { conversationParticipantsConnection { nodes { updatedAt } } } } }')[0][0]
+        expect(res_node).to eq convo.conversation.conversation_participants.first.updated_at.iso8601
+      end
+    end
+
+    it 'does not return conversations for other users' do
+      conversation(@student, @teacher)
+      type = GraphQLTypeTester.new(@teacher, current_user: @student, domain_root_account: @teacher.account, request: ActionDispatch::TestRequest.create)
+      expect(
+        type.resolve('conversationsConnection { nodes { conversation { conversationMessagesConnection { nodes { body } } } } }')
+      ).to be nil
+    end
+
+    it 'filters the conversations' do
+      conversation(@student, @teacher, {body: 'Howdy Partner'})
+      conversation(@student, @random_person, {body: 'Not in course'})
+
+      type = GraphQLTypeTester.new(@student, current_user: @student, domain_root_account: @student.account, request: ActionDispatch::TestRequest.create)
+      result = type.resolve(
+        "conversationsConnection(filter: \"course_#{@course.id}\") { nodes { conversation { conversationMessagesConnection { nodes { body } } } } }"
+      )
+      expect(result.count).to eq 1
+      expect(result[0][0]).to eq 'Howdy Partner'
+
+      result = type.resolve(
+        "conversationsConnection { nodes { conversation { conversationMessagesConnection { nodes { body } } } } }"
+      )
+      expect(result.count).to eq 2
+      expect(result.flatten).to match_array ['Howdy Partner', 'Not in course']
+    end
+
+    it 'scopes the conversations' do
+      conversation(@student, @teacher, {body: 'You get that thing I sent ya?'})
+      conversation(@teacher, @student, {body: 'oh yea =)'})
+      conversation(@student, @random_person, {body: 'Whats up?', starred: true})
+
+      # used for the sent scope
+      conversation(@random_person, @teacher, {body: 'Help! Please make me non-random!'})
+      type = GraphQLTypeTester.new(@student, current_user: @student, domain_root_account: @student.account, request: ActionDispatch::TestRequest.create)
+      result = type.resolve(
+        "conversationsConnection(scope: \"inbox\") { nodes { conversation { conversationMessagesConnection { nodes { body } } } } }"
+      )
+      expect(result.flatten.count).to eq 3
+      expect(result.flatten).to match_array ['You get that thing I sent ya?', 'oh yea =)', 'Whats up?']
+
+      result = type.resolve(
+        "conversationsConnection(scope: \"starred\") { nodes { conversation { conversationMessagesConnection { nodes { body } } } } }"
+      )
+      expect(result.count).to eq 1
+      expect(result[0][0]).to eq 'Whats up?'
+
+      type = GraphQLTypeTester.new(
+        @random_person,
+        current_user: @random_person,
+        domain_root_account: @random_person.account,
+        request: ActionDispatch::TestRequest.create
+      )
+      result = type.resolve("conversationsConnection(scope: \"sent\") { nodes { conversation { conversationMessagesConnection { nodes { body } } } } }")
+      expect(result[0][0]).to eq "Help! Please make me non-random!"
+    end
+  end
+
+  context 'recipients' do
+    let(:type) do
+      GraphQLTypeTester.new(
+        @student,
+        current_user: @student,
+        domain_root_account: @course.account.root_account,
+        request: ActionDispatch::TestRequest.create
+      )
+    end
+
+    it 'returns nil if the user is not the current user' do
+      result = user_type.resolve('recipients { usersConnection { nodes { _id } } }')
+      expect(result).to be nil
+    end
+
+    it 'returns known users' do
+      known_users = @student.address_book.search_users().paginate(per_page: 4)
+      result = type.resolve('recipients { usersConnection { nodes { _id } } }')
+      expect(result).to match_array(known_users.pluck(:id).map(&:to_s))
+    end
+
+    it 'returns contexts' do
+      result = type.resolve('recipients { contextsConnection { nodes { name } } }')
+      expect(result[0]).to eq(@course.name)
+    end
+
+    it 'searches users' do
+      known_users = @student.address_book.search_users().paginate(per_page: 3)
+      User.find(known_users.first.id).update!(name: 'Matthew Lemon')
+      result = type.resolve('recipients(search: "lemon") { usersConnection { nodes { _id } } }')
+      expect(result[0]).to eq(known_users.first.id.to_s)
+
+      result = type.resolve('recipients(search: "morty") { usersConnection { nodes { _id } } }')
+      expect(result).to match_array([])
+    end
+
+    it 'searches contexts' do
+      result = type.resolve('recipients(search: "unnamed") { contextsConnection { nodes { name } } }')
+      expect(result[0]).to eq(@course.name)
+
+      result = type.resolve('recipients(search: "Lemon") { contextsConnection { nodes { name } } }')
+      expect(result).to match_array([])
+    end
+
+    it 'filters results based on context' do
+      known_users = @student.address_book.search_users(context: "course_#{@course.id}_students").paginate(per_page: 3)
+      result = type.resolve("recipients(context: \"course_#{@course.id}_students\") { usersConnection { nodes { _id } } }")
+      expect(result).to match_array(known_users.pluck(:id).map(&:to_s))
+    end
+  end
+
+  context 'favorite_courses' do
+    before(:once) do
+      @course1 = @course
+      course_with_user("StudentEnrollment", user: @student, active_all: true)
+      @course2 = @course
+    end
+
+    let(:type) do
+      GraphQLTypeTester.new(
+        @student,
+        current_user: @student,
+        domain_root_account: @course.account.root_account,
+        request: ActionDispatch::TestRequest.create
+      )
+    end
+
+    it 'returns primary enrollment courses if there are no favorite courses' do
+      result = type.resolve('favoriteCoursesConnection { nodes { _id } }')
+      expect(result).to match_array([@course1.id.to_s, @course2.id.to_s])
+    end
+
+    it 'returns favorite courses' do
+      @student.favorites.create!(context: @course1)
+      result = type.resolve('favoriteCoursesConnection { nodes { _id } }')
+      expect(result).to match_array([@course1.id.to_s])
+    end
+  end
+
+  context 'favorite_groups' do
+    let(:type) do
+      GraphQLTypeTester.new(
+        @student,
+        current_user: @student,
+        domain_root_account: @course.account.root_account,
+        request: ActionDispatch::TestRequest.create
+      )
+    end
+
+    it 'returns all groups if there are no favorite groups' do
+      group_with_user(user: @student, active_all: true)
+      result = type.resolve('favoriteGroupsConnection { nodes { _id } }')
+      expect(result).to match_array([@group.id.to_s])
+    end
+
+    it 'return favorite groups' do
+      2.times do
+        group_with_user(user: @student, active_all: true)
+      end
+      @student.favorites.create!(context: @group)
+      result = type.resolve('favoriteGroupsConnection { nodes { _id } }')
+      expect(result).to match_array([@group.id.to_s])
+    end
+  end
+
+  context 'CommentBankItemsConnection' do
+    before do
+      @comment_bank_item = comment_bank_item_model(user: @teacher, context: @course, comment: 'great comment!')
+    end
+
+    let(:type) do
+      GraphQLTypeTester.new(
+        @teacher,
+        current_user: @teacher,
+        domain_root_account: @course.account.root_account,
+        request: ActionDispatch::TestRequest.create
+      )
+    end
+
+    it 'returns comment bank items for the queried user' do
+      expect(
+        type.resolve('commentBankItemsConnection { nodes { _id } }')
+      ).to eq [@comment_bank_item.id.to_s]
+    end
+
+    describe 'cross sharding' do
+      specs_require_sharding
+
+      it 'returns comments across shards' do
+        @shard1.activate do
+          account = Account.create!(name: 'new shard account')
+          @course2 = course_factory(account: account)
+          @course2.enroll_user(@teacher)
+          @comment2 = comment_bank_item_model(user: @teacher, context: @course2, comment: 'shard 2 comment')
+        end
+
+        expect(
+          type.resolve('commentBankItemsConnection { nodes { comment } }').sort
+        ).to eq ['great comment!', 'shard 2 comment']
+      end
+    end
+
+    describe 'with the limit argument' do
+      it 'returns a limited number of results' do
+        comment_bank_item_model(user: @teacher, context: @course, comment: '2nd great comment!')
+        expect(
+          type.resolve('commentBankItemsConnection(limit: 1) { nodes { comment } }').length
+        ).to eq 1
+      end
+    end
+
+    describe 'with a search query' do
+      before do
+        @comment_bank_item2 = comment_bank_item_model(user: @teacher, context: @course, comment: 'new comment!')
+      end
+
+      it 'returns results that match the query' do
+        expect(
+          type.resolve("commentBankItemsConnection(query: \"new\") { nodes { _id } }").length
+        ).to eq 1
+      end
+
+      it 'strips leading/trailing white space' do
+        expect(
+          type.resolve("commentBankItemsConnection(query: \"    new   \") { nodes { _id } }").length
+        ).to eq 1
+      end
+
+      it 'does not query results if query.strip is blank' do
+        expect(
+          type.resolve("commentBankItemsConnection(query: \"  \") { nodes { _id } }").length
+        ).to eq 2
+      end
+    end
+  end
+
+  context "courseBuiltInRoles" do
+    before do
+      @teacher_with_multiple_roles = user_factory(name: "blah")
+      @course.enroll_user(@teacher_with_multiple_roles, "TeacherEnrollment")
+      @course.enroll_user(@teacher_with_multiple_roles, "TaEnrollment", :allow_multiple_enrollments => true)
+
+      @custom_teacher = user_factory(name: "blah")
+      role = custom_teacher_role('CustomTeacher', :account => @course.account)
+      @course.enroll_user(@custom_teacher, 'TeacherEnrollment', role: role)
+
+      @teacher_with_duplicate_roles = user_factory(name: "blah")
+      @course.enroll_user(@teacher_with_duplicate_roles, "TeacherEnrollment")
+      @course.enroll_user(@teacher_with_duplicate_roles, "TeacherEnrollment", :allow_multiple_enrollments => true)
+    end
+
+    let(:user_ta_type) do
+      GraphQLTypeTester.new(@ta, current_user: @teacher, domain_root_account: @course.account.root_account,request: ActionDispatch::TestRequest.create)
+    end
+
+    let(:user_teacher_type) do
+      GraphQLTypeTester.new(@teacher, current_user: @teacher, domain_root_account: @course.account.root_account, request: ActionDispatch::TestRequest.create)
+    end
+
+    let(:teacher_ta_type) do
+      GraphQLTypeTester.new(@teacher_with_multiple_roles, current_user: @teacher, domain_root_account: @course.account.root_account,request: ActionDispatch::TestRequest.create)
+    end
+
+    let(:teacher_with_duplicate_role_types) do
+      GraphQLTypeTester.new(@teacher_with_duplicate_roles, current_user: @teacher, domain_root_account: @course.account.root_account,request: ActionDispatch::TestRequest.create)
+    end
+
+    let(:custom_teacher_type) do
+      GraphQLTypeTester.new(@custom_teacher, current_user: @teacher, domain_root_account: @course.account.root_account,request: ActionDispatch::TestRequest.create)
+    end
+
+    it "correctly returns default teacher role" do
+      expect(
+        user_teacher_type.resolve(%|courseRoles(courseId: #{@course.id}, roleTypes: ["TaEnrollment","TeacherEnrollment"])|)
+      ).to eq ["TeacherEnrollment"]
+    end
+
+    it "correctly returns default TA role" do
+      expect(
+        user_ta_type.resolve(%|courseRoles(courseId: #{@course.id}, roleTypes: ["TaEnrollment","TeacherEnrollment"])|)
+      ).to eq ["TaEnrollment"]
+    end
+
+    it "does not return student role" do
+      expect(
+        user_type.resolve(%|courseRoles(courseId: #{@course.id}, roleTypes: ["TaEnrollment","TeacherEnrollment"])|)
+      ).to eq []
+    end
+
+    it "returns empty array for course that does not exist" do
+      expect(
+        user_type.resolve(%|courseRoles(courseId: -1, roleTypes: ["TaEnrollment","TeacherEnrollment"])|)
+      ).to eq []
+    end
+
+    it "does not return custom roles based on teacher" do
+      expect(
+        custom_teacher_type.resolve(%|courseRoles(courseId: #{@course.id}, roleTypes: ["TaEnrollment","TeacherEnrollment"])|)
+      ).to eq []
+    end
+
+    it "Returns multiple roles when mutiple enrollments exist" do
+      expect(
+        teacher_ta_type.resolve(%|courseRoles(courseId: #{@course.id}, roleTypes: ["TaEnrollment","TeacherEnrollment"])|)
+      ).to include("TaEnrollment", "TeacherEnrollment")
+    end
+
+    it "does not return duplicate roles when mutiple enrollments exist" do
+      expect(
+        teacher_with_duplicate_role_types.resolve(%|courseRoles(courseId: #{@course.id}, roleTypes: ["TaEnrollment","TeacherEnrollment"])|)
+      ).to eq ["TeacherEnrollment"]
+    end
+
+    it "returns all roles if no role types are specified " do
+      expect(
+        teacher_ta_type.resolve(%|courseRoles(courseId: #{@course.id})|)
+      ).to include("TaEnrollment", "TeacherEnrollment")
+    end
+
+    it "returns only the role specified" do
+      expect(
+        teacher_ta_type.resolve(%|courseRoles(courseId: #{@course.id}, roleTypes: ["TaEnrollment"])|)
+      ).to eq ["TaEnrollment"]
+    end
+
+    it "returns custom role's base_type if built_in_only is set to false" do
+      expect(
+        custom_teacher_type.resolve(%|courseRoles(courseId: #{@course.id}, roleTypes: ["TeacherEnrollment"], builtInOnly: false)|)
+      ).to eq ["TeacherEnrollment"]
+    end
+  end
+
 end

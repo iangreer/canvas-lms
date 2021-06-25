@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2011 - present Instructure, Inc.
 #
@@ -15,14 +17,16 @@
 # You should have received a copy of the GNU Affero General Public License along
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 #
+class ImpossibleCredentialsError < ArgumentError; end
 
 class Pseudonym < ActiveRecord::Base
   include Workflow
 
   has_many :session_persistence_tokens
   belongs_to :account
+  include Canvas::RootAccountCacher
   belongs_to :user
-  has_many :communication_channels, -> { order(:position) }
+  has_many :communication_channels, -> { ordered }
   has_many :sis_enrollments, class_name: 'Enrollment', inverse_of: :sis_pseudonym
   has_many :auditor_authentication_records,
     class_name: "Auditors::ActiveRecord::AuthenticationRecord",
@@ -152,9 +156,11 @@ class Pseudonym < ActiveRecord::Base
 
   def self.custom_find_by_unique_id(unique_id)
     return unless unique_id
+
     active.by_unique_id(unique_id).where("authentication_provider_id IS NULL OR EXISTS (?)",
-      AuthenticationProvider.active.where(auth_type: ['canvas', 'ldap']).
-        where("authentication_provider_id=authentication_providers.id")).first
+      AuthenticationProvider.active.where(auth_type: ['canvas', 'ldap'])
+        .where("authentication_provider_id=authentication_providers.id"))
+        .order("authentication_provider_id NULLS LAST").first
   end
 
   def self.for_auth_configuration(unique_id, aac)
@@ -185,6 +191,8 @@ class Pseudonym < ActiveRecord::Base
     if (!crypted_password || crypted_password == "") && !@require_password
       self.generate_temporary_password
     end
+    # treat empty or whitespaced strings as nullable
+    self.integration_id = nil if self.integration_id.blank?
     self.sis_user_id = nil if self.sis_user_id.blank?
   end
 
@@ -214,7 +222,7 @@ class Pseudonym < ActiveRecord::Base
     :email_login
   end
 
-  def works_for_account?(account, allow_implicit = false)
+  def works_for_account?(account, allow_implicit = false, ignore_types: [:implicit])
     true
   end
 
@@ -271,7 +279,7 @@ class Pseudonym < ActiveRecord::Base
   set_policy do
     # an admin can only create and update pseudonyms when they have
     # :manage_user_logins permission on the pseudonym's account, :read
-    # permission on the pseudonym's owner, and a superset of hte pseudonym's
+    # permission on the pseudonym's owner, and a superset of the pseudonym's
     # owner's rights (if any) on the pseudonym's account. some fields of the
     # pseudonym may require additional conditions to update (see below)
     given do |user|
@@ -374,6 +382,13 @@ class Pseudonym < ActiveRecord::Base
     user.sms
   end
 
+  def infer_auth_provider(ap)
+    previously_changed = changed?
+    @inferred_auth_provider = true if ap && authentication_provider_id.nil?
+    self.authentication_provider ||= ap
+    save! if !previously_changed && changed?
+  end
+
   # managed_password? and passwordable? differ in their treatment of pseudonyms
   # not linked to an authentication_provider. They both err towards the
   # "positive" case matching their name. I.e. if you have both Canvas and
@@ -400,10 +415,11 @@ class Pseudonym < ActiveRecord::Base
     require 'net/ldap'
     res = false
     res ||= valid_ldap_credentials?(plaintext_password)
-    if passwordable?
+    if !res && passwordable?
       # Only check SIS if they haven't changed their password
-      res ||= valid_ssha?(plaintext_password) if password_auto_generated?
+      res = valid_ssha?(plaintext_password) if password_auto_generated?
       res ||= valid_password?(plaintext_password)
+      infer_auth_provider(account.canvas_authentication_provider) if res
     end
     res
   end
@@ -424,7 +440,6 @@ class Pseudonym < ActiveRecord::Base
     digest == digested_password
   end
 
-  attr_reader :ldap_authentication_provider_used
   def ldap_bind_result(password_plaintext)
     aps = case authentication_provider
           when AuthenticationProvider::LDAP
@@ -437,12 +452,12 @@ class Pseudonym < ActiveRecord::Base
     end
     aps.each do |config|
       res = config.ldap_bind_result(self.unique_id, password_plaintext)
-      if res
-        @ldap_authentication_provider_used = config
-        return res
-      end
+      next unless res
+
+      infer_auth_provider(config)
+      return res
     end
-    return nil
+    nil
   end
 
   def add_ldap_channel
@@ -458,6 +473,25 @@ class Pseudonym < ActiveRecord::Base
       self.communication_channel = cc
       self.save_without_session_maintenance if self.changed?
     end
+  end
+
+  def changed?
+    !strip_inferred_authentication_provider(changed_attribute_names_to_save).empty?
+  end
+  alias has_changes_to_save? changed?
+
+  def attribute_names_for_partial_writes
+    strip_inferred_authentication_provider(super)
+  end
+
+  def strip_inferred_authentication_provider(attribute_names)
+    if attribute_names.include?('authentication_provider_id') &&
+      @inferred_auth_provider &&
+      authentication_provider_id &&
+      !account.feature_enabled?(:persist_inferred_authentication_providers)
+      attribute_names.delete('authentication_provider_id')
+    end
+    attribute_names
   end
 
   attr_reader :ldap_result
@@ -490,6 +524,12 @@ class Pseudonym < ActiveRecord::Base
   def self.find_all_by_arbitrary_credentials(credentials, account_ids, remote_ip)
     return [] if credentials[:unique_id].blank? ||
                  credentials[:password].blank?
+    if credentials[:unique_id].length > 255
+      # this sometimes happens by mistake, and produces noisy errors.
+      # we can handle this error explicitly when it arrives and just return
+      # a failed login instead of an error.
+      raise ImpossibleCredentialsError, "pseudonym cannot have a unique_id of length #{credentials[:unique_id].length}"
+    end
     too_many_attempts = false
     begin
       associated_shards = associated_shards(credentials[:unique_id])
@@ -515,7 +555,13 @@ class Pseudonym < ActiveRecord::Base
   end
 
   def self.authenticate(credentials, account_ids, remote_ip = nil)
-    pseudonyms = find_all_by_arbitrary_credentials(credentials, account_ids, remote_ip)
+    pseudonyms = []
+    begin
+      pseudonyms = find_all_by_arbitrary_credentials(credentials, account_ids, remote_ip)
+    rescue ImpossibleCredentialsError => e
+      Rails.logger.info("Impossible pseudonym credentials: #{credentials[:unique_id]}, invalidating session")
+      return :impossible_credentials
+    end
     return :too_many_attempts if pseudonyms == :too_many_attempts
     site_admin = pseudonyms.find { |p| p.account_id == Account.site_admin.id }
     # only log them in if these credentials match a single user OR if it matched site admin
@@ -526,14 +572,7 @@ class Pseudonym < ActiveRecord::Base
   end
 
   def audit_login(remote_ip, valid_password)
-    return :too_many_attempts unless Canvas::Security.allow_login_attempt?(self, remote_ip)
-
-    if valid_password
-      Canvas::Security.successful_login!(self, remote_ip)
-    else
-      Canvas::Security.failed_login!(self, remote_ip)
-    end
-    nil
+    Canvas::Security::LoginRegistry.audit_login(self, remote_ip, valid_password)
   end
 
   def self.cas_ticket_key(ticket)

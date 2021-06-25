@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2014 - present Instructure, Inc.
 #
@@ -563,7 +565,7 @@ equation: <img class="equation_image" title="Log_216" src="/equation_images/Log_
       data-equation-content="h\\left( x \\right) = \\left\\{ {\\begin{array}{*{20}{c}}
       {{x^2} + 4x - 1}&amp;{{\\rm{for}}}&amp;{ - 7 \\le x \\le - 1}\\\\
       { - 3x + p}&amp;{{\\rm{for}}}&amp;{ - 1 &lt; x \\le 6}
-      \\end{array}} \\right." />
+      \\end{array}} \\right."></p>
       HTML
 
       data = {'question_name' => 'test question 1', 'question_type' => 'essay_question', 'question_text' => qtext}
@@ -1129,6 +1131,7 @@ equation: <img class="equation_image" title="Log_216" src="/equation_images/Log_
       end
 
       it "should copy only noop overrides" do
+        Account.default.enable_feature!(:conditional_release)
         due_at = 1.hour.from_now.round
         assignment_override_model(quiz: @quiz_plain, set_type: 'Noop', set_id: 1, title: 'Tag 3')
         assignment_override_model(quiz: @quiz_assigned, set_type: 'Noop', set_id: 1, title: 'Tag 4', due_at: due_at)
@@ -1138,6 +1141,22 @@ equation: <img class="equation_image" title="Log_216" src="/equation_images/Log_
         expect(to_quiz_plain.assignment_overrides.pluck(:title)).to eq ['Tag 3']
         expect(to_quiz_assigned.assignment_overrides.pluck(:title)).to eq ['Tag 4']
         expect(to_quiz_assigned.assignment_overrides.first.due_at).to eq due_at
+      end
+
+      it "should ignore conditional release noop overrides if feature is not enabled in destination" do
+        assignment_override_model(quiz: @quiz_assigned, set_type: 'Noop', set_id: 1, title: 'ignore me')
+        @quiz_assigned.update_attribute(:only_visible_to_overrides, true)
+
+        assignment_override_model(quiz: @quiz_plain, set_type: 'Noop', set_id: 9001, title: 'should keep this')
+        @quiz_plain.update_attribute(:only_visible_to_overrides, true)
+
+        run_course_copy
+        to_quiz_plain = @copy_to.quizzes.where(migration_id: mig_id(@quiz_plain)).first
+        to_quiz_assigned = @copy_to.quizzes.where(migration_id: mig_id(@quiz_assigned)).first
+        expect(to_quiz_assigned.assignment_overrides.count).to eq 0
+        expect(to_quiz_assigned.only_visible_to_overrides).to eq false
+        expect(to_quiz_plain.assignment_overrides.count).to eq 1
+        expect(to_quiz_plain.only_visible_to_overrides).to eq true
       end
     end
 

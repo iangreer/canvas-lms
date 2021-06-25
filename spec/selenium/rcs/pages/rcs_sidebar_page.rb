@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2017 - present Instructure, Inc.
 #
@@ -88,10 +90,6 @@ module RCSSidebarPage
     fj('button:contains("Upload a new image")')
   end
 
-  def image_link(title)
-    fj("aside [role='button']:contains('#{title}')")
-  end
-
   def sidebar
     f('#right-side')
   end
@@ -110,6 +108,10 @@ module RCSSidebarPage
 
   def sidebar_image_tag
     f('#right-side a img')
+  end
+
+  def close_button
+    f('[data-testid="CloseButton_ContentTray"] > button')
   end
 
   # ---------------------- Actions ----------------------
@@ -163,7 +165,8 @@ module RCSSidebarPage
     images_tab.click
   end
 
-  def click_image_link(title)
-    image_link(title).click
+  def click_close_button
+    close_button.click
+    wait_for_ajaximations
   end
 end

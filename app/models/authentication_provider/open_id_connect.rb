@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2011 - present Instructure, Inc.
 #
@@ -27,7 +29,7 @@ class AuthenticationProvider::OpenIDConnect < AuthenticationProvider::Oauth2
     self == OpenIDConnect ? 'OpenID Connect'.freeze : super
   end
 
-  def self.recognized_params
+  def self.open_id_connect_params
     [ :client_id,
       :client_secret,
       :authorize_url,
@@ -37,6 +39,10 @@ class AuthenticationProvider::OpenIDConnect < AuthenticationProvider::Oauth2
       :end_session_endpoint,
       :userinfo_endpoint,
       :jit_provisioning ].freeze
+  end
+
+  def self.recognized_params
+    super + open_id_connect_params
   end
 
   def self.recognized_federated_attributes

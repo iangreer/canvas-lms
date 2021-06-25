@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2020 - present Instructure, Inc.
 #
@@ -22,21 +24,31 @@ module OutcomesService
       def url(context)
         settings = settings(context)
         protocol = ENV.fetch('OUTCOMES_SERVICE_PROTOCOL', Rails.env.production? ? 'https' : 'http')
-        domain = settings[:domain]
+        domain = settings[domain_key]
         "#{protocol}://#{domain}" if domain.present?
+      end
+
+      def domain_key
+        # test_cluster? and test_cluster_name are true and not nil for nonprod environments,
+        # like beta or test
+        if ApplicationController.test_cluster?
+          "#{ApplicationController.test_cluster_name}_domain".to_sym
+        else
+          :domain
+        end
       end
 
       def enabled_in_context?(context)
         settings = settings(context)
-        settings[:consumer_key].present? && settings[:jwt_secret].present? && settings[:domain].present?
+        settings[:consumer_key].present? && settings[:jwt_secret].present? && settings[domain_key].present?
       end
 
       def jwt(context, scope, expiration = 1.day.from_now.to_i, overrides: {})
-        settings = settings(context)
-        if settings.key?(:consumer_key) && settings.key?(:jwt_secret) && settings.key?(:domain)
+        if enabled_in_context?(context)
+          settings = settings(context)
           consumer_key = settings[:consumer_key]
           jwt_secret = settings[:jwt_secret]
-          domain = settings[:domain]
+          domain = settings[domain_key]
           payload = {
             host: domain,
             consumer_key: consumer_key,
@@ -47,7 +59,31 @@ module OutcomesService
         end
       end
 
+      def toggle_feature_flag(root_account, feature_flag, state)
+        feature_flag_url = "#{url(root_account)}/api/features/#{state ? 'enable' : 'disable'}"
+        response = CanvasHttp.post(
+          feature_flag_url,
+          headers_for(root_account, 'features.manage'),
+          form_data: {
+            feature_flag: feature_flag
+          }
+        )
+        return unless response && response.code != '204'
+
+        Canvas::Errors.capture(
+          "Unexpected response from Outcomes Service toggling feature flag",
+          status_code: response.code,
+          body: response.body
+        )
+      end
+
       private
+
+      def headers_for(context, scope, overrides = {})
+        {
+          'Authorization' => OutcomesService::Service.jwt(context, scope, overrides: overrides)
+        }
+      end
 
       def settings(context)
         context.root_account.settings.dig(:provision, 'outcomes') || {}

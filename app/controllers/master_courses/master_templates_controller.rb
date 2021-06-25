@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2017 - present Instructure, Inc.
 #
@@ -309,7 +311,7 @@ class MasterCourses::MasterTemplatesController < ApplicationController
   #     -d 'course_ids_to_remove[]=2' \
   #
   def update_associations
-    if authorized_action(@course.account, @current_user, :manage_courses)
+    if authorized_action(@course.account, @current_user, [:manage_courses, :manage_courses_admin])
       # note that I'm additionally requiring course management rights on the account
       # since (for now) we're only allowed to associate courses derived from it
       ids_to_add = api_find_all(Course, Array(params[:course_ids_to_add])).pluck(:id)
@@ -464,7 +466,7 @@ class MasterCourses::MasterTemplatesController < ApplicationController
 
     max_records = Setting.get('master_courses_history_count', '150').to_i
     items = []
-    Shackles.activate(:slave) do
+    GuardRail.activate(:secondary) do
     MasterCourses::CONTENT_TYPES_FOR_UNSYNCED_CHANGES.each do |klass|
       item_scope = case klass
       when 'Attachment'
@@ -515,6 +517,7 @@ class MasterCourses::MasterTemplatesController < ApplicationController
   def migrations_index
     # sort id desc
     migrations = Api.paginate(@template.master_migrations.order("id DESC"), self, api_v1_course_blueprint_migrations_url)
+    ActiveRecord::Associations::Preloader.new.preload(migrations, :user)
     render :json => migrations.map{|migration| master_migration_json(migration, @current_user, session) }
   end
 
@@ -591,6 +594,7 @@ class MasterCourses::MasterTemplatesController < ApplicationController
       where(:migration_type => 'master_course_import', :child_subscription_id => @subscription).
       order('id DESC')
     migrations = Api.paginate(migrations, self, api_v1_course_blueprint_imports_url)
+    ActiveRecord::Associations::Preloader.new.preload(migrations, :user)
     render :json => migrations.map{ |migration| master_migration_json(migration.master_migration, @current_user,
                                                                       session, :child_migration => migration,
                                                                       :subscription => @subscription) }

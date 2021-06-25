@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2018 - present Instructure, Inc.
 #
@@ -79,14 +81,6 @@ describe Mutations::SetCoursePostPolicy do
     it "returns the related post policy" do
       result = execute_query(mutation_str(course_id: course.id, post_manually: true), context)
       policy = PostPolicy.find_by(course: course, assignment: nil)
-      expect(result.dig("data", "setCoursePostPolicy", "postPolicy", "_id").to_i).to be policy.id
-    end
-
-    it "updates an existing course post policy when one exists" do
-      skip "DEMO-23 (8/17/20)"
-
-      policy = PostPolicy.create!(course: course, post_manually: false)
-      result = execute_query(mutation_str(course_id: course.id, post_manually: true), context)
       expect(result.dig("data", "setCoursePostPolicy", "postPolicy", "_id").to_i).to be policy.id
     end
 

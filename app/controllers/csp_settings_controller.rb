@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2018 - present Instructure, Inc.
 #
@@ -85,6 +87,7 @@ class CspSettingsController < ApplicationController
     else
       return render :json => {:message => "invalid setting"}, :status => :bad_request
     end
+    RequestCache.clear # clear inherited account settings
     render :json => csp_settings_json
   end
 

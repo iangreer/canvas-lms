@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2018 - present Instructure, Inc.
 #
@@ -31,7 +33,7 @@ describe 'Moderated Marking' do
 
     # create a course with three teachers
     @moderated_course = course_factory(course_name: 'moderated_course', active_course: true)
-    @teachers = create_users_in_course(@moderated_course, 3, return_type: :record, name_prefix: "TeacherBoss", enrollment_type: 'TeacherEnrollment')
+    @teachers = create_users_in_course(@moderated_course, 3, return_type: :record, name_prefix: "Teacher", enrollment_type: 'TeacherEnrollment')
     @teacher1 = @teachers[0]
     @teacher2 = @teachers[1]
     @teacher3 = @teachers[2]

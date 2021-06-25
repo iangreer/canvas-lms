@@ -15,14 +15,14 @@ services:
       RANDOMIZE_SEQUENCES: 1
       DISABLE_SPRING: 'true'
       RERUNS_RETRY:
-      MAX_FAIL:
       COVERAGE:
       FORCE_FAILURE:
+      CANVAS_RAILS6_0:
 
       # parallel_tests
       CI_NODE_TOTAL:
       CI_NODE_INDEX:
-      DOCKER_PROCESSES:
+      RSPEC_PROCESSES:
       EXCLUDE_TESTS:
       TEST_PATTERN:
       # rspec-parallel-log build
@@ -38,6 +38,7 @@ services:
   postgres:
     image: $POSTGRES_IMAGE_TAG
     environment:
+      PGDATA: /data
       POSTGRES_PASSWORD: $POSTGRES_PASSWORD
     init: true
 

@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2017 - present Instructure, Inc.
 #
@@ -39,9 +41,8 @@ describe DisablePostToSisApiController do
       expect(assignment.reload.post_to_sis).to eq false
     end
 
-    context 'with bulk_sis_grade_export and new_sis_integrations enabled' do
+    context 'with new_sis_integrations enabled' do
       before do
-        account.enable_feature!(:bulk_sis_grade_export)
         account.enable_feature!(:new_sis_integrations)
       end
 

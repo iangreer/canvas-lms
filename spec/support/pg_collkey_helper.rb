@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2019 - present Instructure, Inc.
 #
@@ -18,8 +20,9 @@
 module PGCollkeyHelper
   def pg_collkey_enabled?
     return @pg_collkey_enabled if defined?(@pg_collkey_enabled)
+
     @pg_collkey_enabled = begin
-      status = if ActiveRecord::Base.connection.extension_installed?(:pg_collkey)
+      status = if ActiveRecord::Base.connection.extension(:pg_collkey)&.schema
         begin
           Bundler.require 'icu'
           true

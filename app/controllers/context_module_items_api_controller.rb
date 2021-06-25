@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2013 - present Instructure, Inc.
 #
@@ -25,7 +27,7 @@
 #       "description": "",
 #       "properties": {
 #         "type": {
-#           "description": "one of 'must_view', 'must_submit', 'must_contribute', 'min_score'",
+#           "description": "one of 'must_view', 'must_submit', 'must_contribute', 'min_score', 'must_mark_done'",
 #           "example": "min_score",
 #           "type": "string",
 #           "allowableValues": {
@@ -33,7 +35,8 @@
 #               "must_view",
 #               "must_submit",
 #               "must_contribute",
-#               "min_score"
+#               "min_score",
+#               "must_mark_done"
 #             ]
 #           }
 #         },
@@ -357,11 +360,12 @@ class ContextModuleItemsApiController < ApplicationController
   #   Whether the external tool opens in a new tab. Only applies to
   #   'ExternalTool' type.
   #
-  # @argument module_item[completion_requirement][type] [String, "must_view"|"must_contribute"|"must_submit"]
+  # @argument module_item[completion_requirement][type] [String, "must_view"|"must_contribute"|"must_submit"|"must_mark_done"]
   #   Completion requirement for this module item.
   #   "must_view": Applies to all item types
   #   "must_contribute": Only applies to "Assignment", "Discussion", and "Page" types
   #   "must_submit", "min_score": Only apply to "Assignment" and "Quiz" types
+  #   "must_mark_done": Only applies to "Assignment" and "Page" types
   #   Inapplicable types will be ignored
   #
   # @argument module_item[completion_requirement][min_score] [Integer]
@@ -433,11 +437,12 @@ class ContextModuleItemsApiController < ApplicationController
   #   Whether the external tool opens in a new tab. Only applies to
   #   'ExternalTool' type.
   #
-  # @argument module_item[completion_requirement][type] [String, "must_view"|"must_contribute"|"must_submit"]
+  # @argument module_item[completion_requirement][type] [String, "must_view"|"must_contribute"|"must_submit"|"must_mark_done"]
   #   Completion requirement for this module item.
   #   "must_view": Applies to all item types
   #   "must_contribute": Only applies to "Assignment", "Discussion", and "Page" types
   #   "must_submit", "min_score": Only apply to "Assignment" and "Quiz" types
+  #   "must_mark_done": Only applies to "Assignment" and "Page" types
   #   Inapplicable types will be ignored
   #
   # @argument module_item[completion_requirement][min_score] [Integer]
@@ -488,7 +493,11 @@ class ContextModuleItemsApiController < ApplicationController
 
       if params[:module_item].has_key?(:published)
         if value_to_boolean(params[:module_item][:published])
-          @tag.publish
+          if module_item_publishable?(@tag)
+            @tag.publish
+          else
+            return render json: {message: "item can't be published"}, status: :unprocessable_entity
+          end
         else
           if module_item_unpublishable?(@tag)
             @tag.unpublish
@@ -619,7 +628,7 @@ class ContextModuleItemsApiController < ApplicationController
     user = @student || @current_user
     @module = @context.modules_visible_to(user).find(params[:module_id])
     @item = @module.content_tags.find(params[:id])
-    raise ActiveRecord::RecordNotFound unless @item && @item.visible_to_user?(user)
+    raise ActiveRecord::RecordNotFound unless @item&.visible_to_user?(user, nil, session)
   end
 
   # @API Get module item sequence
@@ -760,7 +769,7 @@ class ContextModuleItemsApiController < ApplicationController
 
     if params[:module_item][:completion_requirement].blank?
       reqs[@tag.id] = {}
-    elsif ["must_view", "must_submit", "must_contribute", "min_score"].include?(params[:module_item][:completion_requirement][:type])
+    elsif %w[must_view must_submit must_contribute min_score must_mark_done].include?(params[:module_item][:completion_requirement][:type])
       reqs[@tag.id] = params[:module_item][:completion_requirement].to_unsafe_h
     else
       @tag.errors.add(:completion_requirement, t(:invalid_requirement_type, "Invalid completion requirement type"))

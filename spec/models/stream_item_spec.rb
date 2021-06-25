@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2011 - present Instructure, Inc.
 #
@@ -77,7 +79,7 @@ describe StreamItem do
       si2 = StreamItem.create! { |si| si.asset_type = 'Message'; si.data = { notification_id: nil } }
       StreamItem.where(:id => si2).update_all(:updated_at => 1.year.ago)
       # stub this out so that the vacuum is skipped (can't run in specs in a transaction)
-      allow(Shard.current.database_server).to receive(:unshackle)
+      allow(Shard.current.database_server).to receive(:unguard)
       expect {
         StreamItem.destroy_stream_items_using_setting
       }.to change(StreamItem, :count).by(-1)
@@ -180,6 +182,13 @@ describe StreamItem do
   end
 
   describe ".generate_all" do
+    context 'when there is no item generated' do
+      it 'does not cause error when item is not generated' do
+        allow(StreamItem).to receive(:generate_or_update).and_return(nil)
+        expect(StreamItem.generate_all(double, [1])).to eq []
+      end
+    end
+
     context "when the caller is a submission" do
       let(:student) { User.create! }
       let(:teacher) { User.create! }

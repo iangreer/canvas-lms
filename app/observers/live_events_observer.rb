@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2015 - present Instructure, Inc.
 #
@@ -41,6 +43,7 @@ class LiveEventsObserver < ActiveRecord::Observer
           :learning_outcome_result,
           :learning_outcome,
           :outcome_proficiency,
+          :outcome_calculation_method,
           :sis_batch,
           :submission_comment,
           :submission,

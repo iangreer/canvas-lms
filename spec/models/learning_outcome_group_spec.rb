@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2011 - present Instructure, Inc.
 #
@@ -26,11 +28,16 @@ describe LearningOutcomeGroup do
   end
 
   def long_text(max = 65535)
-    text = ''
+    text = +''
     (0...max+1).each do |num|
       text.concat(num.to_s)
     end
     text
+  end
+
+  describe 'associations' do
+    it { is_expected.to belong_to(:source_outcome_group).class_name('LearningOutcomeGroup').inverse_of(:destination_outcome_groups) }
+    it { is_expected.to have_many(:destination_outcome_groups).class_name('LearningOutcomeGroup').inverse_of(:source_outcome_group).dependent(:nullify) }
   end
 
   context 'object creation' do
@@ -176,7 +183,7 @@ describe LearningOutcomeGroup do
   end
 
   describe '#adopt_outcome_link' do
-    it 'moves an existing outcome link from to this group if groups in same context' do
+    it 'moves an existing outcome link from to this group if groups in same context and touchs parent group' do
       group1 = @course.learning_outcome_groups.create!(:title => 'group1')
       group2 = @course.learning_outcome_groups.create!(:title => 'group2')
       outcome = @course.created_learning_outcomes.create!(:title => 'o1')
@@ -184,6 +191,7 @@ describe LearningOutcomeGroup do
 
       expect(outcome_link.associated_asset).to eq(group2)
 
+      expect(group1).to receive(:touch_parent_group)
       group1.adopt_outcome_link(outcome_link)
 
       expect(outcome_link.associated_asset).to eq(group1)
@@ -198,6 +206,19 @@ describe LearningOutcomeGroup do
 
       expect{ group1.adopt_outcome_link(outcome_link) }.
         not_to change{ outcome_link.associated_asset }
+    end
+
+    it "doesn't touch parent group if skip_parent_group_touch is true" do
+      group1 = @course.learning_outcome_groups.create!(:title => 'group1')
+      group2 = @course.learning_outcome_groups.create!(:title => 'group2')
+      outcome = @course.created_learning_outcomes.create!(:title => 'o1')
+      outcome_link = group2.add_outcome(outcome)
+
+      expect(outcome_link.associated_asset).to eq(group2)
+
+      expect(group1).not_to receive(:touch_parent_group)
+
+      group1.adopt_outcome_link(outcome_link, skip_parent_group_touch: true)
     end
   end
 
@@ -282,22 +303,20 @@ describe LearningOutcomeGroup do
     end
   end
 
-  describe 'before save' do
-    describe 'set_root_account_id' do
-      it 'sets root_account_id using Account context' do
-        group = LearningOutcomeGroup.create!(title: 'group', context: Account.default)
-        expect(group.root_account).to eq Account.default
-      end
+  context 'root account resolution' do
+    it 'sets root_account_id using Account context' do
+      group = LearningOutcomeGroup.create!(title: 'group', context: Account.default)
+      expect(group.root_account).to eq Account.default
+    end
 
-      it 'sets root_account_id using Course context' do
-        group = @course.learning_outcome_groups.create!(title: 'group')
-        expect(group.root_account).to eq @course.root_account
-      end
+    it 'sets root_account_id using Course context' do
+      group = @course.learning_outcome_groups.create!(title: 'group')
+      expect(group.root_account).to eq @course.root_account
+    end
 
-      it 'leaves root_acount_id nil when global (context is nil)' do
-        group = LearningOutcomeGroup.create!(title: 'group', context_id: nil)
-        expect(group.root_account_id).to be_nil
-      end
+    it 'sets root_acount_id 0 when global (context is nil)' do
+      group = LearningOutcomeGroup.create!(title: 'group', context_id: nil)
+      expect(group.root_account_id).to eq 0
     end
   end
 end

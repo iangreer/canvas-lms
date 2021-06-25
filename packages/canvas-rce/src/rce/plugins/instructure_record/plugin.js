@@ -27,6 +27,7 @@ const trayController = new TrayController()
 
 const COURSE_PLUGIN_KEY = 'course_media'
 const USER_PLUGIN_KEY = 'user_media'
+const GROUP_PLUGIN_KEY = 'group_media'
 
 function getMenuItems(ed) {
   const contextType = ed.settings.canvas_rce_user_context.type
@@ -42,6 +43,11 @@ function getMenuItems(ed) {
     items.push({
       text: formatMessage('Course Media'),
       value: 'instructure_course_media'
+    })
+  } else if (contextType === 'group') {
+    items.push({
+      text: formatMessage('Group Media'),
+      value: 'instructure_group_media'
     })
   }
   items.push({
@@ -59,6 +65,10 @@ function doMenuItem(ed, value) {
     case 'instructure_course_media':
       ed.focus(true)
       ed.execCommand('instructureTrayForMedia', false, COURSE_PLUGIN_KEY)
+      break
+    case 'instructure_group_media':
+      ed.focus(true)
+      ed.execCommand('instructureTrayForMedia', false, GROUP_PLUGIN_KEY)
       break
     case 'instructure_user_media':
       ed.focus(true)
@@ -83,7 +93,11 @@ tinymce.create('tinymce.plugins.InstructureRecord', {
           return {
             type: 'menuitem',
             text: item.text,
-            onAction: () => doMenuItem(ed, item.value)
+            onAction: () => doMenuItem(ed, item.value),
+            onSetup: api => {
+              api.setDisabled(!isOKToLink(ed.selection.getContent()))
+              return () => {}
+            }
           }
         })
     })
@@ -102,15 +116,18 @@ tinymce.create('tinymce.plugins.InstructureRecord', {
         })
         callback(items)
       },
-      onAction() {
-        const first = getMenuItems(ed)[0].value
-        doMenuItem(ed, first)
+      onAction(api) {
+        if (!api.isDisabled()) {
+          const first = getMenuItems(ed)[0].value
+          doMenuItem(ed, first)
+        }
       },
       onItemAction: (_splitButtonApi, value) => doMenuItem(ed, value),
       onSetup(api) {
         function handleNodeChange(_e) {
           api.setDisabled(!isOKToLink(ed.selection.getContent()))
         }
+        setTimeout(handleNodeChange)
         ed.on('NodeChange', handleNodeChange)
         return () => {
           ed.off('NodeChange', handleNodeChange)

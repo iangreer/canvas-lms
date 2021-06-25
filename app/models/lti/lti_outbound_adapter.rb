@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2014 - present Instructure, Inc.
 #
@@ -16,6 +18,7 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 
 module Lti
+
   class LtiOutboundAdapter
     cattr_writer :consumer_instance_class
 
@@ -50,6 +53,7 @@ module Lti
       link_code = opts[:link_code] || default_link_code
       @overrides = opts[:overrides] || {}
       link_params = opts[:link_params] || {}
+      include_module_context = opts[:include_module_context] || false
 
       lti_context = Lti::LtiContextCreator.new(@context, @tool).convert
       lti_user = Lti::LtiUserCreator.new(@user, @root_account, @tool, @context).convert if @user
@@ -69,7 +73,8 @@ module Lti
             tool: lti_tool,
             account: lti_account,
             variable_expander: variable_expander,
-            link_params: link_params
+            link_params: link_params,
+            include_module_context: include_module_context
         }
       )
       self
@@ -80,13 +85,17 @@ module Lti
       hash = @tool_launch.generate(@overrides)
       hash[:ext_lti_assignment_id] = assignment&.lti_context_id if assignment&.lti_context_id.present?
       hash[:ext_lti_student_id] = student_id if student_id
-      Lti::Security.signed_post_params(
-        hash,
-        @tool_launch.url,
-        @tool.consumer_key,
-        @tool.shared_secret,
-        disable_post_only?
-      )
+      begin
+        return Lti::Security.signed_post_params(
+          hash,
+          @tool_launch.url,
+          @tool.consumer_key,
+          @tool.shared_secret,
+          disable_post_only?
+        )
+      rescue URI::InvalidURIError
+        raise ::Lti::Errors::InvalidLaunchUrlError, "Invalid launch url: #{@tool_launch.url}"
+      end
     end
 
     def generate_post_payload_for_assignment(assignment, outcome_service_url, legacy_outcome_service_url, lti_turnitin_outcomes_placement_url)

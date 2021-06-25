@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2015 Instructure, Inc.
 #
@@ -23,7 +25,7 @@ describe Api::Html::Content, type: :request do
     context "valid latex" do
       before do
         @latex = '\frac{a}{b}'
-        @node = Nokogiri::HTML::DocumentFragment.parse("<img alt='#{@latex}' />").children.first
+        @node = Nokogiri::HTML5.fragment("<img alt='#{@latex}' />").children.first
       end
 
       it "retains the alt attribute" do
@@ -40,7 +42,7 @@ describe Api::Html::Content, type: :request do
     context "invalid latex" do
       before do
         @latex = '\frac{a}{' # incomplete
-        @node = Nokogiri::HTML::DocumentFragment.parse("<img alt='#{@latex}' />").children.first
+        @node = Nokogiri::HTML5.fragment("<img alt='#{@latex}' />").children.first
       end
 
       it "handles error gracefully" do

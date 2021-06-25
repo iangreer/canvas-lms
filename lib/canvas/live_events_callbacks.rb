@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2018 - present Instructure, Inc.
 #
@@ -49,7 +51,7 @@ module Canvas::LiveEventsCallbacks
     when AssignmentOverride
       Canvas::LiveEvents.assignment_override_created(obj)
     when Submission
-      Canvas::LiveEvents.submission_created(obj)
+      Canvas::LiveEvents.submission_created(obj) if obj.just_submitted?
     when SubmissionComment
       Canvas::LiveEvents.submission_comment_created(obj)
     when UserAccountAssociation
@@ -83,6 +85,8 @@ module Canvas::LiveEventsCallbacks
       Canvas::LiveEvents.sis_batch_created(obj)
     when OutcomeProficiency
       Canvas::LiveEvents.outcome_proficiency_created(obj)
+    when OutcomeCalculationMethod
+      Canvas::LiveEvents.outcome_calculation_method_created(obj)
     end
   end
 
@@ -151,16 +155,10 @@ module Canvas::LiveEventsCallbacks
       Canvas::LiveEvents.module_updated(obj)
     when ContextModuleProgression
       if changes["completed_at"]
-        # it's possible that some terrible thing unset the requirements_met in the db after the "completed_at" was set
-        # but before this event fired off so here's a terrible hack to stuff it back in for the purposes of
-        # calculating completion
-        overridden_requirements_met = changes["requirements_met"] && {obj.id => changes["requirements_met"].last&.map(&:symbolize_keys)}
-        if CourseProgress.new(obj.context_module.course, obj.user, read_only: true,
-            overridden_requirements_met: overridden_requirements_met).completed?
-          Canvas::LiveEvents.course_completed(obj)
-        else
-          Canvas::LiveEvents.course_progress(obj)
-        end
+        CourseProgress.delay_if_production(
+          singleton: "course_progress_#{obj.global_id}",
+          run_at: Setting.get('course_progress_live_event_delay_seconds', '120').to_i.seconds.from_now
+        ).dispatch_live_event(obj)
       end
     when ContentTag
       case obj.tag_type
@@ -181,6 +179,8 @@ module Canvas::LiveEventsCallbacks
       end
     when OutcomeProficiency
       Canvas::LiveEvents.outcome_proficiency_updated(obj)
+    when OutcomeCalculationMethod
+      Canvas::LiveEvents.outcome_calculation_method_updated(obj)
     end
   end
 

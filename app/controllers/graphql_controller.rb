@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2018 - present Instructure, Inc.
 #
@@ -23,7 +25,7 @@ CanvasSchema.graphql_definition
 class GraphQLController < ApplicationController
   include Api::V1
 
-  before_action :require_user, except: :execute
+  before_action :require_user, if: :require_auth?
 
   def execute
     query = params[:query]
@@ -58,5 +60,15 @@ class GraphQLController < ApplicationController
   def graphiql
     @page_title = "GraphiQL"
     render :graphiql, layout: 'bare'
+  end
+
+  private
+
+  def require_auth?
+    if action_name == 'execute'
+      return !::Account.site_admin.feature_enabled?(:disable_graphql_authentication)
+    end
+
+    true
   end
 end

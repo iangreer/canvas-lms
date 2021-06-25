@@ -1,3 +1,4 @@
+# frozen_string_literal: true
 
 #
 # Copyright (C) 2019 - present Instructure, Inc.
@@ -31,6 +32,11 @@ module Types
     field :proficiency_ratings_connection, ProficiencyRatingType.connection_type, null: true
     def proficiency_ratings_connection
       object.outcome_proficiency_ratings
+    end
+
+    field :locked, Boolean, null: false
+    def locked
+      !object.context.grants_right?(current_user, :manage_proficiency_scales)
     end
   end
 end

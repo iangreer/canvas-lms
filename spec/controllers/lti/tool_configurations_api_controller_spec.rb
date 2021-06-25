@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2018 - present Instructure, Inc.
 #
@@ -67,7 +69,7 @@ RSpec.describe Lti::ToolConfigurationsApiController, type: :controller do
 
   shared_examples_for 'an action that requires manage developer keys' do |skip_404|
     context 'when the user has manage_developer_keys' do
-      it { is_expected.to be_success }
+      it { is_expected.to be_successful }
     end
 
     context 'when the user is not an admin' do
@@ -141,6 +143,26 @@ RSpec.describe Lti::ToolConfigurationsApiController, type: :controller do
           'has_expansion' => '$Canvas.user.id',
           'no_expansion' => 'foo'
         )
+      end
+
+      context 'and `redirect_uris` is not sent at developer key parameter' do
+        it 'set `target_link_uri` to developer_key.redirect_uris' do
+          dev_key_params.delete(:redirect_uris)
+
+          subject
+
+          expect(config_from_response.developer_key.redirect_uris).to eq [settings['target_link_uri']]
+        end
+      end
+
+      context 'and `redirect_uris` is sent at developer key parameter' do
+        let(:redirect_uris) { dev_key_params[:redirect_uris].split(/[\r\n]+/) }
+
+        it 'set redirect_uris parameter to developer_key.redirect_uris' do
+          subject
+
+          expect(config_from_response.developer_key.redirect_uris).to eq redirect_uris
+        end
       end
     end
 

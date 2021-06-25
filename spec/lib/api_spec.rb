@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2011 - present Instructure, Inc.
 #
@@ -188,6 +190,11 @@ describe Api do
       account.lti_context_id = Canvas::Security.hmac_sha1(account.asset_string.to_s, 'key')
       account.save!
       expect(@api.api_find(Account, "lti_context_id:#{account.lti_context_id}")).to eq account
+    end
+
+    it "finds account by uuid" do
+      account = Account.create!(name: 'account')
+      expect(@api.api_find(Account, "uuid:#{account.uuid}")).to eq account
     end
 
     it "should find user by uuid" do

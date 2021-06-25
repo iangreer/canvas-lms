@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2013 - present Instructure, Inc.
 #
@@ -55,7 +57,7 @@ class RequestThrottle
     bucket = LeakyBucket.new(client_identifier(request))
 
     up_front_cost = bucket.get_up_front_cost_for_path(path)
-    pre_judged = (whitelisted?(request) || blacklisted?(request))
+    pre_judged = (approved?(request) || blocked?(request))
     cost = bucket.reserve_capacity(up_front_cost, request_prejudged: pre_judged) do
       status, headers, response = if !allowed?(request, bucket)
         throttled = true
@@ -79,7 +81,7 @@ class RequestThrottle
     if client_identifier(request) && !client_identifier(request).starts_with?('session')
       headers['X-Request-Cost'] = cost.to_s unless throttled
       headers['X-Rate-Limit-Remaining'] = bucket.remaining.to_s
-      headers['X-Rate-Limit-Remaining'] = 0.0.to_s if blacklisted?(request)
+      headers['X-Rate-Limit-Remaining'] = 0.0.to_s if blocked?(request)
     end
 
     [status, headers, response]
@@ -102,16 +104,16 @@ class RequestThrottle
   end
 
   def subject_to_throttling?(request)
-    self.class.enabled? && Canvas.redis_enabled? && !whitelisted?(request) && !blacklisted?(request)
+    self.class.enabled? && Canvas.redis_enabled? && !approved?(request) && !blocked?(request)
   end
 
   def allowed?(request, bucket)
-    if whitelisted?(request)
+    if approved?(request)
       return true
-    elsif blacklisted?(request)
-      # blacklisting is useful even if throttling is disabled, this is left in intentionally
-      Rails.logger.info("blocking request due to blacklist, client id: #{client_identifiers(request).inspect} ip: #{request.remote_ip}")
-      InstStatsd::Statsd.increment("request_throttling.blacklisted")
+    elsif blocked?(request)
+      # blocking is useful even if throttling is disabled, this is left in intentionally
+      Rails.logger.info("blocking request due to blocklist, client id: #{client_identifiers(request).inspect} ip: #{request.remote_ip}")
+      InstStatsd::Statsd.increment("request_throttling.blocked")
       return false
     else
       if bucket.full?
@@ -127,12 +129,12 @@ class RequestThrottle
     end
   end
 
-  def blacklisted?(request)
-    client_identifiers(request).any? { |id| self.class.blacklist.include?(id) }
+  def blocked?(request)
+    client_identifiers(request).any? { |id| self.class.blocklist.include?(id) }
   end
 
-  def whitelisted?(request)
-    client_identifiers(request).any? { |id| self.class.whitelist.include?(id) }
+  def approved?(request)
+    client_identifiers(request).any? { |id| self.class.approvelist.include?(id) }
   end
 
   def client_identifier(request)
@@ -171,16 +173,16 @@ class RequestThrottle
     request.env['rack.session.options'].try(:[], :id)
   end
 
-  def self.blacklist
-    @blacklist ||= list_from_setting('request_throttle.blacklist')
+  def self.blocklist
+    @blocklist ||= list_from_setting('request_throttle.blocklist')
   end
 
-  def self.whitelist
-    @whitelist ||= list_from_setting('request_throttle.whitelist')
+  def self.approvelist
+    @approvelist ||= list_from_setting('request_throttle.approvelist')
   end
 
   def self.reload!
-    @whitelist = @blacklist = @dynamic_settings = nil
+    @approvelist = @blocklist = @dynamic_settings = nil
     LeakyBucket.reload!
   end
 
@@ -189,7 +191,7 @@ class RequestThrottle
   end
 
   def self.list_from_setting(key)
-    Set.new(Setting.get(key, '').split(',').map(&:strip).reject(&:blank?))
+    Set.new(Setting.get(key, '').split(',').map { |i| i.gsub(/^\s+|\s*(?:;.+)?\s*$/, "") }.reject(&:blank?))
   end
 
   def self.dynamic_settings
@@ -204,11 +206,11 @@ class RequestThrottle
   end
 
   def report_on_stats(db_runtime, account, starting_mem, ending_mem, user_cpu, system_cpu)
-    RequestContextGenerator.add_meta_header("b", starting_mem)
-    RequestContextGenerator.add_meta_header("m", ending_mem)
-    RequestContextGenerator.add_meta_header("u", "%.2f" % [user_cpu])
-    RequestContextGenerator.add_meta_header("y", "%.2f" % [system_cpu])
-    RequestContextGenerator.add_meta_header("d", "%.2f" % [db_runtime])
+    RequestContext::Generator.add_meta_header("b", starting_mem)
+    RequestContext::Generator.add_meta_header("m", ending_mem)
+    RequestContext::Generator.add_meta_header("u", "%.2f" % [user_cpu])
+    RequestContext::Generator.add_meta_header("y", "%.2f" % [system_cpu])
+    RequestContext::Generator.add_meta_header("d", "%.2f" % [db_runtime])
 
     if account&.shard&.database_server
       InstStatsd::Statsd.timing("requests_system_cpu.cluster_#{account.shard.database_server.id}", system_cpu,
@@ -352,3 +354,5 @@ class RequestThrottle
     end
   end
 end
+
+Canvas::Reloader.on_reload { RequestThrottle.reload! }

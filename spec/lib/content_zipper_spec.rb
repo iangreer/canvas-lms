@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2011 - present Instructure, Inc.
 #
@@ -337,7 +339,7 @@ describe ContentZipper do
 
         @attachment = Attachment.new(display_name: 'my_download.zip')
         @attachment.workflow_state = 'to_be_zipped'
-        @attachment.context = folder
+        @attachment.context = folder.reload
       end
 
       def zipped_files_for_user(user=nil, check_user=true)
@@ -599,7 +601,7 @@ describe ContentZipper do
       it "creates uploaded data for the assignment and marks it as available" do
         expect(@attachment).to receive(:save!).once
         zip_name = "submissions.zip"
-        zip_path = File.join(ActionController::TestCase.fixture_path, zip_name)
+        zip_path = File.join(RSpec.configuration.fixture_path, zip_name)
         data = "just some stub data"
         expect(Rack::Test::UploadedFile).to receive(:new).with(zip_path, 'application/zip').and_return data
         expect(@attachment).to receive(:uploaded_data=).with data

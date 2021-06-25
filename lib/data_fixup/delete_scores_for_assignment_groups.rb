@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2017 - present Instructure, Inc.
 #
@@ -18,6 +20,6 @@
 
 module DataFixup::DeleteScoresForAssignmentGroups
   def self.run
-    Score.where.not(assignment_group_id: nil).in_batches { |scores| scores.delete_all }
+    Score.where.not(assignment_group_id: nil).in_batches.delete_all
   end
 end

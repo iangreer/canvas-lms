@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2011 - present Instructure, Inc.
 #
@@ -78,7 +80,8 @@ class ContextExternalTool < ActiveRecord::Base
   Lti::ResourcePlacement::PLACEMENTS.each do |type|
     class_eval <<-RUBY, __FILE__, __LINE__ + 1
       def #{type}(setting=nil)
-        extension_setting(:#{type}, setting)
+        # expose inactive placements to API
+        extension_setting(:#{type}, setting) || extension_setting(:inactive_placements, :#{type})
       end
 
       def #{type}=(hash)
@@ -128,7 +131,8 @@ class ContextExternalTool < ActiveRecord::Base
 
     hash = hash.with_indifferent_access
     hash[:enabled] = Canvas::Plugin.value_to_boolean(hash[:enabled]) if hash[:enabled]
-    settings[type] = {}.with_indifferent_access
+    # merge with existing settings so that no caller can complain
+    settings[type] = (settings[type] || {}).with_indifferent_access
 
     extension_keys = [
       :canvas_icon_class,
@@ -162,6 +166,30 @@ class ContextExternalTool < ActiveRecord::Base
       end
     end
 
+    # on deactivation, make sure placement data is kept
+    if settings[type].key?(:enabled) && !settings[type][:enabled]
+      # resource_selection is a default placement, which can only be overridden
+      # by not_selectable, see scope :placements on line 826
+      self.not_selectable = true if type == :resource_selection
+
+      settings[:inactive_placements] ||= {}.with_indifferent_access
+      settings[:inactive_placements][type] ||= {}.with_indifferent_access
+      settings[:inactive_placements][type].merge!(settings[type])
+      settings.delete(type)
+      return
+    end
+
+    # on reactivation, use the old placement data
+    if settings[type][:enabled] && settings.dig(:inactive_placements, type)
+      # resource_selection is a default placement, which can only be overridden
+      # by not_selectable, see scope :placements on line 826
+      self.not_selectable = false if type == :resource_selection
+
+      settings[type] = settings.dig(:inactive_placements, type).merge(settings[type])
+      settings[:inactive_placements].delete(type)
+      settings.delete(:inactive_placements) if settings[:inactive_placements].empty?
+    end
+
     settings[type]
   end
 
@@ -177,12 +205,23 @@ class ContextExternalTool < ActiveRecord::Base
   end
 
   def can_be_rce_favorite?
-    self.context.respond_to?(:root_account?) &&
-    self.context.root_account? &&
     !self.editor_button.nil?
   end
 
+  def is_rce_favorite_in_context?(context)
+    context = context.context if context.is_a?(Group)
+    context = context.account if context.is_a?(Course)
+    rce_favorite_tool_ids = context.rce_favorite_tool_ids[:value]
+    if rce_favorite_tool_ids
+      rce_favorite_tool_ids.include?(self.global_id)
+    else
+      # TODO remove after the datafixup and this column is dropped
+      self.is_rce_favorite
+    end
+  end
+
   def sync_placements!(placements)
+    self.context_external_tool_placements.reload if self.context_external_tool_placements.loaded?
     old_placements = self.context_external_tool_placements.pluck(:placement_type)
     placements_to_delete = Lti::ResourcePlacement::PLACEMENTS.map(&:to_s) - placements
     if placements_to_delete.any?
@@ -355,6 +394,14 @@ class ContextExternalTool < ActiveRecord::Base
     settings[:use_1_3] = bool
   end
 
+  def uses_preferred_lti_version?
+    !!send("use_#{PREFERRED_LTI_VERSION}?")
+  end
+
+  def active?
+    ['deleted', 'disabled'].exclude? workflow_state
+  end
+
   def self.find_custom_fields_from_string(str)
     return {} if str.nil?
     str.split(/[\r\n]+/).each_with_object({}) do |line, hash|
@@ -476,11 +523,10 @@ class ContextExternalTool < ActiveRecord::Base
     ContextExternalTool.normalize_sizes!(self.settings)
 
     Lti::ResourcePlacement::PLACEMENTS.each do |type|
-      if settings[type]
-        if !(extension_setting(type, :url)) || (settings[type].has_key?(:enabled) && !settings[type][:enabled])
-          settings.delete(type)
-        end
-      end
+      next unless settings[type]
+      next if settings[type].key? :enabled
+
+      settings.delete(type) unless extension_setting(type, :url)
     end
 
     settings.delete(:editor_button) unless editor_button(:icon_url) || editor_button(:canvas_icon_class)
@@ -557,6 +603,24 @@ class ContextExternalTool < ActiveRecord::Base
     @standard_url
   end
 
+  # Does the tool match the host of the given url?
+  # Checks for batches on both domain and url
+  #
+  # This method checks both the domain and url
+  # host when attempting to match host.
+  #
+  # This method was added becauase #matches_domain?
+  # cares about the presence or absence of a protocol
+  # in the domain. Rather than changing that method and
+  # risking breaking Canvas flows, we introduced this
+  # new method.
+  def matches_host?(url)
+    matches_tool_domain?(url) ||
+      (self.url.present? &&
+        Addressable::URI.parse(self.url)&.normalize&.host ==
+          Addressable::URI.parse(url).normalize.host)
+  end
+
   def matches_url?(url, match_queries_exactly=true)
     if match_queries_exactly
       url = ContextExternalTool.standardize_url(url)
@@ -578,7 +642,7 @@ class ContextExternalTool < ActiveRecord::Base
     return false if domain.blank?
     url = ContextExternalTool.standardize_url(url)
     host = Addressable::URI.parse(url).normalize.host rescue nil
-    d = domain.gsub(/http[s]?\:\/\//, '')
+    d = domain.downcase.gsub(/http[s]?\:\/\//, '')
     !!(host && ('.' + host).match(/\.#{d}\z/))
 end
 
@@ -612,6 +676,12 @@ end
 
   def self.from_content_tag(tag, context)
     return nil if tag.blank? || context.blank?
+
+    # We can simply return the content if we
+    # know it uses the preferred LTI version.
+    # No need to go through the tool lookup logic.
+    content = tag.content
+    return content if content&.active? && content&.uses_preferred_lti_version?
 
     # Lookup the tool by the usual "find_external_tool"
     # method. Fall back on the tag's content if
@@ -662,6 +732,10 @@ end
     self.active.where(:consumer_key => consumer_key).polymorphic_where(:context => contexts_to_search(context)).first
   end
 
+  def self.find_active_external_tool_by_client_id(client_id, context)
+    self.active.where(developer_key_id: client_id).polymorphic_where(context: contexts_to_search(context)).first
+  end
+
   def self.find_external_tool_by_id(id, context)
     self.where(:id => id).polymorphic_where(:context => contexts_to_search(context)).first
   end
@@ -681,14 +755,13 @@ end
   #
   # Tools with exclude_tool_id as their ID will never be returned.
   def self.find_external_tool(url, context, preferred_tool_id=nil, exclude_tool_id=nil, preferred_client_id=nil)
-    Shackles.activate(:slave) do
+    GuardRail.activate(:secondary) do
       contexts = contexts_to_search(context)
       preferred_tool = ContextExternalTool.active.where(id: preferred_tool_id).first if preferred_tool_id
+      can_use_preferred_tool = preferred_tool && contexts.member?(preferred_tool.context)
 
-      if preferred_tool && contexts.member?(preferred_tool.context) && (url == nil || preferred_tool.matches_domain?(url))
-        return preferred_tool
-      end
-
+      # always use the preferred_tool_id if url isn't provided
+      return preferred_tool if url.blank? && can_use_preferred_tool
       return nil unless url
 
       query = ContextExternalTool.shard(context.shard).polymorphic_where(context: contexts).active
@@ -699,10 +772,7 @@ end
         [contexts.index { |c| c.id == t.context_id && c.class.name == t.context_type }, t.precedence, t.id == preferred_tool_id ? CanvasSort::First : CanvasSort::Last]
       end
 
-      search_options = {
-        exclude_tool_id: exclude_tool_id,
-        lti_version: PREFERRED_LTI_VERSION
-      }
+      search_options = { exclude_tool_id: exclude_tool_id }
 
       # Check for a tool that exactly matches the given URL
       match = find_tool_match(
@@ -731,6 +801,16 @@ end
         search_options
       )
 
+      # always use the preferred tool id *unless* the preferred tool is a 1.1 tool
+      # and the matched tool is a 1.3 tool, since 1.3 is the preferred version of a tool
+      if can_use_preferred_tool && preferred_tool.matches_domain?(url)
+        if match&.use_1_3? && !preferred_tool.use_1_3?
+          return match
+        end
+
+        return preferred_tool
+      end
+
       match
     end
   end
@@ -741,7 +821,7 @@ end
   # If a preferred LTI version is specified, this method will use
   # LTI version as a tie-breaker.
   def self.find_tool_match(url, sorted_tool_collection, matcher, matcher_condition, opts)
-    exclude_tool_id, lti_version = opts.values_at(:exclude_tool_id, :lti_version)
+    exclude_tool_id = opts[:exclude_tool_id]
 
     # Find tools that match the given matcher
     exact_matches = sorted_tool_collection.select do |tool|
@@ -750,8 +830,8 @@ end
 
     # There was only a single match, so return it
     return exact_matches.first if exact_matches.count == 1
-    
-    version_match = find_exact_version_match(exact_matches, lti_version)
+
+    version_match = find_exact_version_match(exact_matches)
 
     # There is no LTI version preference or no matching
     # version was found. Return the first matched tool
@@ -763,10 +843,8 @@ end
 
   # Given a collection of tools, finds the first with the given LTI version
   # If no matches were detected, returns nil
-  def self.find_exact_version_match(sorted_tool_collection, lti_version)
-    return nil if lti_version.blank?
-
-    sorted_tool_collection.find { |t| t.send("use_#{lti_version}?") }
+  def self.find_exact_version_match(sorted_tool_collection)
+    sorted_tool_collection.find { |t| t.uses_preferred_lti_version? }
   end
 
   scope :having_setting, lambda { |setting| setting ? joins(:context_external_tool_placements).
@@ -880,14 +958,42 @@ end
   end
 
   def self.opaque_identifier_for(asset, shard, context: nil)
+    return if asset.blank?
+
     shard.activate do
       lti_context_id = context_id_for(asset, shard)
       Lti::Asset.set_asset_context_id(asset, lti_context_id, context: context)
     end
   end
 
+  def override_visibility(visibility, placement = nil)
+    to_override = placement.present? ? self.settings[placement.to_sym] : self.settings
+    to_override[:visibility_override] = visibility
+  end
+
+  def clear_visibility_override(placement = nil)
+    to_override = placement.present? ? self.settings[placement.to_sym] : self.settings
+    to_override.delete(:visibility_override)
+  end
+
+  def visible?(placement, user, context, session=nil)
+    return self.globally_visible?(user, context, session) if placement&.to_sym == :global_navigation
+
+    visibility = self.extension_setting(placement, :visibility_override) || self.extension_setting(placement, :visibility)
+    self.class.visible?(visibility, user, context, session)
+  end
+
+  def globally_visible?(user, context, session=nil)
+    granted_permissions =
+      self.class.global_navigation_granted_permissions(
+        root_account: context.root_account, user: user, context: context, session: session
+      )
+    self.class.global_tool_visible?(self, granted_permissions)
+  end
+
   def visible_with_permission_check?(launch_type, user, context, session=nil)
-    return false unless self.class.visible?(self.extension_setting(launch_type, 'visibility'), user, context, session)
+    return false unless self.visible?(launch_type, user, context, session)
+
     permission_given?(launch_type, user, context, session)
   end
 
@@ -931,6 +1037,62 @@ end
     !feature || (context || self.context).feature_enabled?(feature)
   end
 
+  # for helping tool providers upgrade from 1.1 to 1.3.
+  # this method will upgrade all related assignments to 1.3,
+  # only if this is a 1.3 tool and has a matching 1.1 tool.
+  # since finding all assignments related to this tool is an
+  # expensive operation (unavoidable N+1 for indirectly
+  # related assignments, which are more rare), this is done
+  # in a delayed job.
+  def prepare_for_ags_if_needed!
+    return unless use_1_3?
+
+    # is there a 1.1 tool that matches this one?
+    matching_1_1_tool = self.class.find_external_tool(url || domain, context, nil, id)
+    return if matching_1_1_tool.nil? || matching_1_1_tool.use_1_3?
+
+    delay_if_production(priority: Delayed::LOW_PRIORITY).prepare_for_ags(matching_1_1_tool.id)
+  end
+
+  def prepare_for_ags(matching_1_1_tool_id)
+    related_assignments(matching_1_1_tool_id).each do |a|
+      a.prepare_for_ags_if_needed!(self)
+    end
+  end
+
+  # finds all assignments related to a tool, whether directly through a
+  # ContentTag with a ContextExternalTool as its `content`, or indirectly
+  # through a ContentTag with a `url` that matches a ContextExternalTool.
+  # accepts a `tool_id` parameter that specifies the tool to search for.
+  # if this isn't provided, searches for self.
+  def related_assignments(tool_id = nil)
+    tool_id ||= id
+    scope = Assignment.active.joins(:external_tool_tag)
+
+    # limit to assignments in the tool's context
+    if context.is_a? Course
+      scope = scope.where(context_id: context.id)
+    elsif context.is_a? Account
+      scope = scope.where(root_account_id: root_account_id, content_tags: { root_account_id: root_account_id })
+    end
+
+    directly_associated = scope.where(content_tags: { content_id: tool_id })
+    indirectly_associated = []
+    scope.
+      where(content_tags: { content_id: nil}).
+      select("assignments.*", "content_tags.url as tool_url").
+      each do |a|
+        # again, look for the 1.1 tool by excluding self from this query.
+        # an unavoidable N+1, sadly
+        a_tool = self.class.find_external_tool(a.tool_url, a, nil, id)
+        next if a_tool.nil? || a_tool.id != tool_id
+
+        indirectly_associated << a
+      end
+
+    directly_associated + indirectly_associated
+  end
+
   private
 
   def self.context_id_for(asset, shard)
@@ -965,7 +1127,7 @@ end
         batch_object: user, batched_keys: [:enrollments, :account_users]) do
       # let them see admin level tools if there are any courses they can manage
       if root_account.grants_right?(user, :manage_content) ||
-        Shackles.activate(:slave) { Course.manageable_by_user(user.id, true).not_deleted.where(:root_account_id => root_account).exists? }
+        GuardRail.activate(:secondary) { Course.manageable_by_user(user.id, false).not_deleted.where(:root_account_id => root_account).exists? }
         'admins'
       else
         'members'
@@ -995,21 +1157,18 @@ end
 
   def self.filtered_global_navigation_tools(root_account, granted_permissions)
     tools = self.all_global_navigation_tools(root_account)
+    tools.select { |tool| self.global_tool_visible?(tool, granted_permissions) }
+  end
 
-    if granted_permissions[:original_visibility] != 'admins'
-      # reject the admin only tools
-      tools.reject!{|tool| tool.global_navigation[:visibility] == 'admins'}
-    end
+  def self.global_tool_visible?(tool, granted_permissions)
+    # reject the admin only tools
+    return false if granted_permissions[:original_visibility] != 'admins' && tool.extension_setting(:global_navigation, :visibility) == 'admins'
+
     # check against permissions if needed
-    tools.select! do |tool|
-      required_permissions_str = tool.extension_setting(:global_navigation, 'required_permissions')
-      if required_permissions_str
-        required_permissions_str.split(",").map(&:to_sym).all?{|p| granted_permissions[p]}
-      else
-        true
-      end
-    end
-    tools
+    required_permissions_str = tool.extension_setting(:global_navigation, 'required_permissions')
+    return true unless required_permissions_str
+
+    required_permissions_str.split(",").map(&:to_sym).all? { |p| granted_permissions[p] }
   end
 
   def self.key_for_granted_permissions(granted_permissions)
@@ -1050,7 +1209,7 @@ end
       {
           :name => tool.label_for(:editor_button, I18n.locale),
           :id => tool.id,
-          :favorite => tool.is_rce_favorite,
+          :favorite => tool.is_rce_favorite_in_context?(context),
           :url => tool.editor_button(:url),
           :icon_url => tool.editor_button(:icon_url),
           :canvas_icon_class => tool.editor_button(:canvas_icon_class),

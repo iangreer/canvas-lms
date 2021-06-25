@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2011 - present Instructure, Inc.
 #
@@ -34,6 +36,18 @@ class Announcement < DiscussionTopic
   validates_presence_of :message
 
   acts_as_list scope: { context: self, type: 'Announcement' }
+
+  scope :between , lambda { |start_date, end_date|
+    where('COALESCE(delayed_post_at, posted_at, created_at) BETWEEN ? AND ?', start_date, end_date)
+  }
+
+  scope :ordered_between, lambda { |start_date, end_date|
+    between(start_date, end_date).order(Arel.sql("COALESCE(delayed_post_at, posted_at, created_at) DESC"))
+  }
+
+  scope :ordered_between_by_context, lambda { |start_date, end_date|
+    between(start_date, end_date).order(Arel.sql("context_id, COALESCE(delayed_post_at, posted_at, created_at) DESC"))
+  }
 
   def validate_draft_state_change
     old_draft_state, new_draft_state = self.changes['workflow_state']
@@ -119,6 +133,10 @@ class Announcement < DiscussionTopic
   end
 
   def is_announcement; true end
+
+  def homeroom_announcement?(context)
+    context.is_a?(Course) && context.elementary_homeroom_course?
+  end
 
   # no one should receive discussion entry notifications for announcements
   def subscribers

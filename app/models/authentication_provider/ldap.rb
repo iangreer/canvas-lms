@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2015 - present Instructure, Inc.
 #
@@ -25,9 +27,10 @@ class AuthenticationProvider::LDAP < AuthenticationProvider
   before_save :clear_last_timeout_failure
 
   def self.recognized_params
-    [ :auth_host, :auth_port, :auth_over_tls, :auth_base,
-      :auth_filter, :auth_username, :auth_password,
-      :identifier_format, :jit_provisioning ].freeze
+    super + 
+      [ :auth_host, :auth_port, :auth_over_tls, :auth_base,
+        :auth_filter, :auth_username, :auth_password,
+        :identifier_format, :jit_provisioning ].freeze
   end
 
   SENSITIVE_PARAMS = [ :auth_password ].freeze
@@ -85,8 +88,7 @@ class AuthenticationProvider::LDAP < AuthenticationProvider
       "\00" => '\00',
   }.freeze
   def sanitized_ldap_login(login)
-    login.gsub!(/[#{Regexp.escape(LDAP_SANITIZE_MAP.keys.join)}]/, LDAP_SANITIZE_MAP)
-    login
+    login.gsub(/[#{Regexp.escape(LDAP_SANITIZE_MAP.keys.join)}]/, LDAP_SANITIZE_MAP)
   end
 
   def ldap_filter(login = nil)
@@ -215,7 +217,7 @@ class AuthenticationProvider::LDAP < AuthenticationProvider
 
     result
   rescue => e
-    ::Canvas::Errors.capture(e, type: :ldap, account: self.account)
+    ::Canvas::Errors.capture(e, {type: :ldap, account: self.account}, :warn)
     if e.is_a?(Timeout::Error)
       if should_send_to_statsd?
         InstStatsd::Statsd.increment("#{statsd_prefix}.ldap_timeout",

@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2012 - present Instructure, Inc.
 #
@@ -19,8 +21,6 @@ require 'academic_benchmarks'
 
 module AcademicBenchmark
   class Converter < Canvas::Migration::Migrator
-    COMMON_CORE_GUID = 'A83297F2-901A-11DF-A622-0C319DFF4B22'.freeze
-
     def initialize(settings={})
       super(settings, "academic_benchmark")
       @ratings_overrides = settings[:migration_options] || {}

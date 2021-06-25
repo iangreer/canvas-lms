@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2014 - present Instructure, Inc.
 #
@@ -23,6 +25,9 @@ module CanvasStringex
   String.send :include, LuckySneaks::StringExtensions
 
   if defined?(ActiveRecord)
+    # Prevents uninitialized constant ActiveRecord::DatabaseConfigurations::ConnectionUrlResolver::URI
+    # (probably only relevant for specs in practice)
+    require 'uri'
     ActiveRecord::Base.send :include, LuckySneaks::ActsAsUrl
   end
 end

@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2015 - present Instructure, Inc.
 #
@@ -37,7 +39,7 @@ describe Login::CasController do
     user_with_pseudonym(active_all: true, account: account)
 
     cas_ticket = CanvasUuid::Uuid.generate_securish_uuid
-    request_text = <<-REQUEST_TEXT
+    request_text = <<-REQUEST_TEXT.strip
         <samlp:LogoutRequest
           xmlns:samlp="urn:oasis:names:tc:SAML:2.0:protocol"
           xmlns:saml="urn:oasis:names:tc:SAML:2.0:assertion"
@@ -48,7 +50,6 @@ describe Login::CasController do
           <samlp:SessionIndex>#{cas_ticket}</samlp:SessionIndex>
         </samlp:LogoutRequest>
     REQUEST_TEXT
-    request_text.strip!
 
     session[:cas_session] = cas_ticket
     session[:login_aac] = Account.default.authentication_providers.first.id
@@ -85,6 +86,8 @@ describe Login::CasController do
     get 'new', params: {:ticket => 'ST-abcd'}
     expect(response).to redirect_to(dashboard_url(:login_success => 1))
     expect(session[:cas_session]).to eq 'ST-abcd'
+    # the auth provider got set on the pseudonym
+    expect(assigns[:current_pseudonym].authentication_provider).to eq account.authentication_providers.active.find('cas')
   end
 
   it "should scope logins to the correct domain root account" do

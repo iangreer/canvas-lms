@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2020 - present Instructure, Inc.
 #
@@ -75,7 +77,7 @@ module DataFixup
     end
 
     def database
-      @database ||= Canvas::Cassandra::DatabaseBuilder.from_config(:auditors)
+      @database ||= CanvasCassandra::DatabaseBuilder.from_config(:auditors)
     end
 
     def process_records

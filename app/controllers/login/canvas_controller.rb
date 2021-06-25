@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2015 - present Instructure, Inc.
 #
@@ -31,6 +33,7 @@ class Login::CanvasController < ApplicationController
     @headers = false
     flash.now[:error] = params[:message] if params[:message]
     flash.now[:notice] = t('Your password has been changed.') if params[:password_changed] == '1'
+    @include_recaptcha = recaptcha_enabled?
 
     maybe_render_mobile_login
   end
@@ -74,6 +77,7 @@ class Login::CanvasController < ApplicationController
 
         res = aac.ldap_bind_result(params[:pseudonym_session][:unique_id], params[:pseudonym_session][:password])
         next unless res
+
         unique_id = if aac.identifier_format.present?
                       res.first[aac.identifier_format].first
                     else
@@ -86,6 +90,7 @@ class Login::CanvasController < ApplicationController
         next unless pseudonym
 
         pseudonym.instance_variable_set(:@ldap_result, res.first)
+        pseudonym.infer_auth_provider(aac)
         @pseudonym_session = PseudonymSession.new(pseudonym, params[:pseudonym_session][:remember_me] == "1")
         @pseudonym_session.save
         session[:login_aac] = aac.id
@@ -96,10 +101,15 @@ class Login::CanvasController < ApplicationController
       pseudonym = Pseudonym.authenticate(params[:pseudonym_session],
                                          @domain_root_account.trusted_account_ids,
                                          request.remote_ip)
-      if pseudonym && pseudonym != :too_many_attempts
+      if pseudonym && ![:too_many_attempts, :impossible_credentials].include?(pseudonym)
         @pseudonym_session = PseudonymSession.new(pseudonym, params[:pseudonym_session][:remember_me] == "1")
         found = @pseudonym_session.save
       end
+    end
+
+    if pseudonym == :impossible_credentials
+      unsuccessful_login t("Invalid username or password")
+      return
     end
 
     if pseudonym == :too_many_attempts || @pseudonym_session.too_many_attempts?
@@ -107,7 +117,7 @@ class Login::CanvasController < ApplicationController
       return
     end
 
-    pseudonym = @pseudonym_session && @pseudonym_session.record
+    pseudonym = @pseudonym_session&.record
     # If the user's @domain_root_account has been deleted, feel free to share that information
     if pseudonym && (!pseudonym.user || pseudonym.user.unavailable?)
       unsuccessful_login t("That user account has been deleted.  Please contact your system administrator to have your account re-activated.")
@@ -118,9 +128,9 @@ class Login::CanvasController < ApplicationController
     if found
       # Call for some cleanups that should be run when a user logs in
       user = pseudonym.login_assertions_for_user
-      session[:login_aac] ||= pseudonym.authentication_provider_id ||
-        pseudonym.ldap_authentication_provider_used&.id ||
-        @domain_root_account.canvas_authentication_provider&.id
+      ap = pseudonym.authentication_provider
+
+      session[:login_aac] ||= ap.id
       successful_login(user, pseudonym)
     else
       link_url = Setting.get('invalid_login_faq_url', nil)

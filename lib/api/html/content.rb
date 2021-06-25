@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2014 - present Instructure, Inc.
 #
@@ -148,7 +150,7 @@ module Api
       end
 
       def parsed_html
-        @_parsed_html ||= Nokogiri::HTML::DocumentFragment.parse(html)
+        @_parsed_html ||= Nokogiri::HTML5.fragment(html)
       end
 
       def apply_user_content_attributes(node, user_content)

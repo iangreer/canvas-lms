@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2011 - present Instructure, Inc.
 #
@@ -34,7 +36,7 @@ describe "communication_channels/confirm.html.erb" do
     it "should only show the registration form if no merge opportunities" do
       assign(:merge_opportunities, [])
       render
-      page = Nokogiri::HTML('<document>' + response.body + '</document>')
+      page = Nokogiri::HTML5('<document>' + response.body + '</document>')
       registration_form = page.css('#registration_confirmation_form').first
       expect(registration_form).not_to be_nil
       if @enrollment
@@ -52,7 +54,7 @@ describe "communication_channels/confirm.html.erb" do
       user_with_pseudonym(:active_all => 1)
       assign(:merge_opportunities, [[@user, [@user.pseudonym]]])
       render
-      page = Nokogiri::HTML('<document>' + response.body + '</document>')
+      page = Nokogiri::HTML5('<document>' + response.body + '</document>')
       registration_form = page.css('#registration_confirmation_form').first
       expect(registration_form).not_to be_nil
       expect(registration_form['style']).to match /display:\s*none/
@@ -70,7 +72,7 @@ describe "communication_channels/confirm.html.erb" do
       assign(:merge_opportunities, [[@user, [@user.pseudonym]]])
       assign(:current_user, @user)
       render
-      page = Nokogiri::HTML('<document>' + response.body + '</document>')
+      page = Nokogiri::HTML5('<document>' + response.body + '</document>')
       registration_form = page.css('#registration_confirmation_form').first
       expect(registration_form).not_to be_nil
       expect(registration_form['style']).to match /display:\s*none/
@@ -88,7 +90,7 @@ describe "communication_channels/confirm.html.erb" do
       assign(:merge_opportunities, [[@user, [@user.pseudonym]]])
       assign(:current_user, @user)
       render
-      page = Nokogiri::HTML('<document>' + response.body + '</document>')
+      page = Nokogiri::HTML5('<document>' + response.body + '</document>')
       registration_form = page.css('#registration_confirmation_form').first
       expect(registration_form).not_to be_nil
       expect(registration_form['style']).to match /display:\s*none/
@@ -106,7 +108,7 @@ describe "communication_channels/confirm.html.erb" do
       account2 = Account.create!
       assign(:merge_opportunities, [[@user, [@user.pseudonym, @user.pseudonyms.create!(:unique_id => 'johndoe', :account => account2)]]])
       render
-      page = Nokogiri::HTML('<document>' + response.body + '</document>')
+      page = Nokogiri::HTML5('<document>' + response.body + '</document>')
       registration_form = page.css('#registration_confirmation_form').first
       expect(registration_form).not_to be_nil
       expect(registration_form['style']).to match /display:\s*none/
@@ -133,7 +135,7 @@ describe "communication_channels/confirm.html.erb" do
       ])
       assign(:current_user, @user1)
       render
-      page = Nokogiri::HTML('<document>' + response.body + '</document>')
+      page = Nokogiri::HTML5('<document>' + response.body + '</document>')
       registration_form = page.css('#registration_confirmation_form').first
       expect(registration_form).not_to be_nil
       expect(registration_form['style']).to match /display:\s*none/
@@ -161,7 +163,7 @@ describe "communication_channels/confirm.html.erb" do
       assign(:current_user, @user)
 
       render
-      page = Nokogiri::HTML('<document>' + response.body + '</document>')
+      page = Nokogiri::HTML5('<document>' + response.body + '</document>')
       expect(page.css('#registration_confirmation_form').first).to be_nil
       transfer_button = page.css('#transfer.btn').first
       expect(transfer_button).not_to be_nil
@@ -190,7 +192,7 @@ describe "communication_channels/confirm.html.erb" do
       assign(:current_user, @user)
       assign(:merge_opportunities, [[@user, [@pseudonym]]])
       render
-      page = Nokogiri::HTML('<document>' + response.body + '</document>')
+      page = Nokogiri::HTML5('<document>' + response.body + '</document>')
       expect(page.css('input[type="radio"][name="pseudonym_select"]')).to be_empty
       expect(page.css('#registration_confirmation_form').first).to be_nil
       expect(page.css('#register.btn').first).to be_nil
@@ -206,7 +208,7 @@ describe "communication_channels/confirm.html.erb" do
       assign(:current_user, @user)
       assign(:merge_opportunities, [[@user, [@pseudonym]]])
       render
-      page = Nokogiri::HTML('<document>' + response.body + '</document>')
+      page = Nokogiri::HTML5('<document>' + response.body + '</document>')
       expect(page.css('input[type="radio"][name="pseudonym_select"]')).to be_empty
       expect(page.css('#registration_confirmation_form').first).to be_nil
       expect(page.css('#register.btn').first).to be_nil
@@ -224,7 +226,7 @@ describe "communication_channels/confirm.html.erb" do
       @user2 = @user
       assign(:merge_opportunities, [[@user1, [@user1.pseudonym]], [@user2, [@user2.pseudonym]]])
       render
-      page = Nokogiri::HTML('<document>' + response.body + '</document>')
+      page = Nokogiri::HTML5('<document>' + response.body + '</document>')
       expect(page.css('input[type="radio"][name="pseudonym_select"]').length).to eq 2
       expect(page.css('#registration_confirmation_form').first).to be_nil
       expect(page.css('#register.btn').first).to be_nil

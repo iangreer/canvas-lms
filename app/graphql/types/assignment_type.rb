@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2018 - present Instructure, Inc.
 #
@@ -189,6 +191,11 @@ module Types
     field :rubric, RubricType, null: true
     def rubric
       load_association(:rubric)
+    end
+
+    field :rubric_association, RubricAssociationType, null: true
+    def rubric_association
+      assignment.active_rubric_association? ? load_association(:rubric_association) : nil
     end
 
     def lock_info

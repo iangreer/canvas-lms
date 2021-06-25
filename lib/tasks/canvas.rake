@@ -1,3 +1,8 @@
+# frozen_string_literal: true
+
+require 'rake/task_graph'
+require 'parallel'
+
 $canvas_tasks_loaded ||= false
 unless $canvas_tasks_loaded
 $canvas_tasks_loaded = true
@@ -5,7 +10,7 @@ $canvas_tasks_loaded = true
 def log_time(name, &block)
   puts "--> Starting: '#{name}'"
   time = Benchmark.realtime(&block)
-  puts "--> Finished: '#{name}' in #{time}"
+  puts "--> Finished: '#{name}' in #{time.round(2)}s"
   time
 end
 
@@ -18,80 +23,73 @@ end
 namespace :canvas do
   desc "Compile javascript and css assets."
   task :compile_assets do |t, args|
+    # running :environment as a prerequisite task is necessary even if we don't
+    # need it for this task: forked processes (through Parallel) that invoke other
+    # Rake tasks may require the Rails environment and for some reason, Rake will
+    # not re-run the environment task when forked
+    require 'config/environment' rescue nil
 
     # opt out
     npm_install = ENV["COMPILE_ASSETS_NPM_INSTALL"] != "0"
-    compile_css = ENV["COMPILE_ASSETS_CSS"] != "0"
-    build_styleguide = ENV["COMPILE_ASSETS_STYLEGUIDE"] != "0"
-    build_webpack = ENV["COMPILE_ASSETS_BUILD_JS"] != "0"
     build_api_docs = ENV["COMPILE_ASSETS_API_DOCS"] != "0"
+    build_css = ENV["COMPILE_ASSETS_CSS"] != "0"
+    build_styleguide = ENV["COMPILE_ASSETS_STYLEGUIDE"] != "0"
+    build_i18n = ENV["RAILS_LOAD_ALL_LOCALES"] != "0"
+    build_js = ENV["COMPILE_ASSETS_BUILD_JS"] != "0"
+    build_prod_js = ENV['RAILS_ENV'] == 'production' || ENV['USE_OPTIMIZED_JS'] == 'true' || ENV['USE_OPTIMIZED_JS'] == 'True'
+    # build dev bundles even in prod mode so you can debug with ?optimized_js=0
+    # query string (except for on jenkins where we set JS_BUILD_NO_UGLIFY anyway
+    # so there's no need for an unminified fallback)
+    build_dev_js = ENV['JS_BUILD_NO_FALLBACK'] != "1" && (!build_prod_js || ENV['JS_BUILD_NO_UGLIFY'] != "1")
 
-    if npm_install
-      log_time('Making sure node_modules are up to date') {
-        Rake::Task['js:yarn_install'].invoke
-      }
+    batches = Rake::TaskGraph.draw do
+      task 'css:compile' => [ 'js:gulp_rev' ] if build_css
+      task 'css:styleguide' if build_styleguide
+      task 'doc:api' if build_api_docs
+      task 'js:yarn_install' if npm_install
+      task 'js:gulp_rev' => [
+        ('js:yarn_install' if npm_install)
+      ].compact
+
+      task 'i18n:generate_js' => [
+        ('js:yarn_install' if npm_install)
+      ].compact if build_i18n && build_js
+
+      task 'js:webpack_development' => [
+        # public/dist/brandable_css/brandable_css_bundles_with_deps.json needs
+        # to exist before we run handlebars stuff, so we have to do this first
+        'css:compile',
+        ('i18n:generate_js' if build_i18n),
+      ] if build_js && build_dev_js
+
+      task 'js:webpack_production' => [
+        'css:compile',
+        ('i18n:generate_js' if build_i18n),
+      ] if build_js && build_prod_js
     end
 
-    raise "Error running gulp rev" unless system('yarn run gulp rev')
-
-    if compile_css
-      # public/dist/brandable_css/brandable_css_bundles_with_deps.json needs
-      # to exist before we run handlebars stuff, so we have to do this first
-      Rake::Task['css:compile'].invoke
-    end
-
-    require 'parallel'
-    tasks = Hash.new
-
-    if build_styleguide
-      tasks["css:styleguide"] = -> {
-        Rake::Task['css:styleguide'].invoke
-      }
-    end
-
-    Rake::Task['js:build_client_apps'].invoke
-
-    generate_tasks = []
-    generate_tasks << 'i18n:generate_js' if build_webpack
-    build_tasks = []
-    if build_webpack
-      # build dev bundles even in prod mode so you can debug with ?optimized_js=0 query string
-      # (except for on jenkins where we set JS_BUILD_NO_UGLIFY anyway so there's no need for an unminified fallback)
-      build_prod = ENV['RAILS_ENV'] == 'production' || ENV['USE_OPTIMIZED_JS'] == 'true' || ENV['USE_OPTIMIZED_JS'] == 'True'
-      dont_need_dev_fallback = build_prod && ENV['JS_BUILD_NO_UGLIFY'] == "1"
-      build_tasks << 'js:webpack_development' unless dont_need_dev_fallback
-      build_tasks << 'js:webpack_production' if build_prod
-    end
-
-    msg = "run " + (generate_tasks + build_tasks).join(", ")
-    tasks[msg] = -> {
-      if generate_tasks.any?
-        Parallel.each(generate_tasks, in_processes: parallel_processes) do |name|
-          log_time(name) { Rake::Task[name].invoke }
-        end
-      end
-
-      if build_tasks.any?
-        Parallel.each(build_tasks, in_threads: parallel_processes) do |name|
-          log_time(name) { Rake::Task[name].invoke }
-        end
-      end
-    }
-
-    if build_api_docs
-      tasks["Generate documentation [yardoc]"] = -> {
-        Rake::Task['doc:api'].invoke
-      }
-    end
-
-    times = nil
+    batch_times = []
     real_time = Benchmark.realtime do
-      times = Parallel.map(tasks, :in_processes => parallel_processes) do |name, lamduh|
-        log_time(name) { lamduh.call }
+      batches.each do |tasks|
+        batch_times += Parallel.map(tasks, :in_processes => parallel_processes) do |task|
+          name, runner = if task.is_a?(Hash)
+            task.values_at(:name, :runner)
+          else
+            [task, ->() { Rake::Task[task].invoke }]
+          end
+
+          log_time(name, &runner)
+        end
       end
     end
-    combined_time = times.reduce(:+)
-    puts "Finished compiling assets in #{real_time}. parallelism saved #{combined_time - real_time} (#{real_time.to_f / combined_time.to_f * 100.0}%)"
+
+    combined_time = batch_times.reduce(:+)
+
+    puts (
+      "Finished compiling assets in #{real_time.round(2)}s. " +
+      "Parallelism saved #{(combined_time - real_time).round(2)}s " +
+      "(#{(real_time.to_f / combined_time.to_f * 100.0).round(2)}%)"
+    )
   end
 
   desc "Just compile css and js for development"
@@ -110,7 +108,7 @@ namespace :canvas do
         if Hash === subtree
           load_tree(key, subtree)
         else
-          Imperium::KV.put(key, subtree, cas: 0)
+          Diplomat::Kv.put(key, subtree.to_s, { cas: 0 })
         end
       end
     end
@@ -148,11 +146,7 @@ namespace :db do
   desc "Shows pending db migrations."
   task :pending_migrations => :environment do
     migrations = ActiveRecord::Base.connection.migration_context.migrations
-    if CANVAS_RAILS5_2
-      pending_migrations = ActiveRecord::Migrator.new(:up, migrations).pending_migrations
-    else
-      pending_migrations = ActiveRecord::Migrator.new(:up, migrations, ActiveRecord::Base.connection.schema_migration).pending_migrations
-    end
+    pending_migrations = ActiveRecord::Migrator.new(:up, migrations, ActiveRecord::Base.connection.schema_migration).pending_migrations
     pending_migrations.each do |pending_migration|
       tags = pending_migration.tags
       tags = " (#{tags.join(', ')})" unless tags.empty?
@@ -163,11 +157,7 @@ namespace :db do
   desc "Shows skipped db migrations."
   task :skipped_migrations => :environment do
     migrations = ActiveRecord::Base.connection.migration_context.migrations
-    if CANVAS_RAILS5_2
-      skipped_migrations = ActiveRecord::Migrator.new(:up, migrations).skipped_migrations
-    else
-      skipped_migrations = ActiveRecord::Migrator.new(:up, migrations, ActiveRecord::Base.connection.schema_migration).skipped_migrations
-    end
+    skipped_migrations = ActiveRecord::Migrator.new(:up, migrations, ActiveRecord::Base.connection.schema_migration).skipped_migrations
     skipped_migrations.each do |skipped_migration|
       tags = skipped_migration.tags
       tags = " (#{tags.join(', ')})" unless tags.empty?
@@ -177,14 +167,14 @@ namespace :db do
 
   namespace :migrate do
     desc "Run all pending predeploy migrations"
+    # TODO: this is being replaced by outrigger
+    # rake db:migrate:tagged[predeploy].
+    # When all callsites are migrated, this task
+    # definition can be dropped.
     task :predeploy => [:environment, :load_config] do
       migrations = ActiveRecord::Base.connection.migration_context.migrations
       migrations = migrations.select { |m| m.tags.include?(:predeploy) }
-      if CANVAS_RAILS5_2
-        ActiveRecord::Migrator.new(:up, migrations).migrate
-      else
-        ActiveRecord::Migrator.new(:up, migrations, ActiveRecord::Base.connection.schema_migration).migrate
-      end
+      ActiveRecord::Migrator.new(:up, migrations, ActiveRecord::Base.connection.schema_migration).migrate
     end
   end
 
@@ -196,8 +186,8 @@ namespace :db do
       queue = config['queue']
       ActiveRecord::Tasks::DatabaseTasks.drop(queue) if queue rescue nil
       ActiveRecord::Tasks::DatabaseTasks.drop(config) rescue nil
-      Canvas::Cassandra::DatabaseBuilder.config_names.each do |cass_config|
-        db = Canvas::Cassandra::DatabaseBuilder.from_config(cass_config)
+      CanvasCassandra::DatabaseBuilder.config_names.each do |cass_config|
+        db = CanvasCassandra::DatabaseBuilder.from_config(cass_config)
         db.tables.each do |table|
           db.execute("DROP TABLE #{table}")
         end
@@ -227,7 +217,7 @@ Switchman::Rake.filter_database_servers do |servers, block|
   block.call(servers)
 end
 
-%w{db:pending_migrations db:skipped_migrations db:migrate:predeploy}.each do |task_name|
+%w{db:pending_migrations db:skipped_migrations db:migrate:predeploy db:migrate:tagged}.each do |task_name|
   Switchman::Rake.shardify_task(task_name, categories: ->{ Shard.categories })
 end
 

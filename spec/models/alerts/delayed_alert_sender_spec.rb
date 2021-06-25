@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2011 - present Instructure, Inc.
 #
@@ -293,7 +295,7 @@ module Alerts
           root_account.enable_user_notes = true
           root_account.save!
 
-          ::UserNote.create!(:creator => @teacher, :user => @user) { |un| un.created_at = Time.zone.now - 30.days }
+          ::UserNote.create!(creator: @teacher, user: @user, root_account_id: root_account.id) { |un| un.created_at = Time.zone.now - 30.days }
           alert = @course.alerts.build(:recipients => [:student])
           alert.criteria.build(:criterion_type => 'UserNote', :threshold => 7)
           alert.save!

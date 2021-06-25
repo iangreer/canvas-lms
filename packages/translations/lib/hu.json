@@ -158,6 +158,9 @@
     "circle_unordered_list_9e3a0763": {
         "message": "rendezetlen lista körökkel"
     },
+    "clear_2084585f": {
+        "message": "Törlés"
+    },
     "clear_selected_file_82388e50": {
         "message": "Kiválasztott fájl törlése"
     },
@@ -356,9 +359,6 @@
     "drag_handle_use_up_and_down_arrows_to_resize_e29eae5c": {
         "message": "Húzza a fogantyút. Átméretezéshez használja a fel és le nyilakat."
     },
-    "drop_and_drop_or_click_to_browse_your_computer_1acfa42d": {
-        "message": "Húzzon át ide elemeket, vagy kattintson a számítógépen való tallózáshoz."
-    },
     "due_5d7267be": {
         "message": "Határidő: "
     },
@@ -400,9 +400,6 @@
     },
     "embed_video_a97a64af": {
         "message": "Videó beágyazása"
-    },
-    "embed_video_code_703e10f2": {
-        "message": "Videó Kód beágyazása"
     },
     "embedded_content_aaeb4d3d": {
         "message": "beágyazott tartalom"
@@ -697,9 +694,6 @@
     },
     "my_grades_98834476": {
         "message": "Az én értékeléseim"
-    },
-    "my_media_82bade11": {
-        "message": "Az én médiám"
     },
     "navigate_through_the_menu_or_toolbar_415a4e50": {
         "message": "Navigáljon a menün vagy eszköztáron át"
@@ -1165,6 +1159,9 @@
     },
     "video_player_for_title_ffd9fbc4": {
         "message": "Videólejátszó ehhez: { title }"
+    },
+    "view_ba339f93": {
+        "message": "Megtekintés"
     },
     "view_keyboard_shortcuts_34d1be0b": {
         "message": "A gyors elérés billentyűkombinációk megtekintése"

@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2011 - present Instructure, Inc.
 #
@@ -132,6 +134,21 @@ describe Canvadocs::Session do
       )
       permissions = canvadoc_permissions_for_user(teacher, true)
       expect(permissions[:permissions]).to eq "readwritemanage"
+    end
+
+    it "returns 'read' permissions when read_only is true" do
+      permissions = canvadoc_permissions_for_user(@student, true, true)
+      expect(permissions[:permissions]).to eq "read"
+    end
+
+    it "does not return 'read' permissions when read_only is false" do
+      permissions = canvadoc_permissions_for_user(@student, true, false)
+      expect(permissions[:permissions]).not_to eq "read"
+    end
+
+    it "does not return 'read' permissions when read_only is not included" do
+      permissions = canvadoc_permissions_for_user(@student, true)
+      expect(permissions[:permissions]).not_to eq "read"
     end
 
     it "includes a user_filter if the user cannot read grades" do

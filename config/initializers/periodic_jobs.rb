@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2014 - present Instructure, Inc.
 #
@@ -48,17 +50,17 @@ class PeriodicJobs
   end
 
   def self.with_each_shard_by_database_in_region(klass, method, *args, jitter: nil, local_offset: false)
-    Shard.with_each_shard(Shard.in_current_region) do
+    callback = -> { Canvas::Errors.capture_exception(:periodic_job, $ERROR_INFO) }
+    Shard.with_each_shard(Shard.in_current_region, exception: callback) do
       strand = "#{klass}.#{method}:#{Shard.current.database_server.id}"
       # TODO: allow this to work with redis jobs
       next if Delayed::Job == Delayed::Backend::ActiveRecord::Job && Delayed::Job.where(strand: strand, shard_id: Shard.current.id, locked_by: nil).exists?
       dj_params = {
         strand: strand,
-        max_attempts: 1,
         priority: 40
       }
       dj_params[:run_at] = compute_run_at(jitter: jitter, local_offset: local_offset)
-      klass.send_later_enqueue_args(method, dj_params, *args)
+      klass.delay(**dj_params).__send__(method, *args)
     end
   end
 end
@@ -68,7 +70,6 @@ def with_each_shard_by_database(klass, method, *args, jitter: nil, local_offset:
                                      :with_each_shard_by_database_in_region,
                                      {
                                        singleton: "periodic:region: #{klass}.#{method}",
-                                       max_attempts: 1,
                                      }, klass, method, *args, jitter: jitter, local_offset: local_offset)
 end
 
@@ -162,8 +163,7 @@ Rails.configuration.after_initialize do
     DatabaseServer.send_in_each_region(
       BounceNotificationProcessor,
       :process,
-      { run_current_region_asynchronously: true,
-        singleton: 'BounceNotificationProcessor.process' }
+      { run_current_region_asynchronously: true }
     )
   end
 
@@ -242,7 +242,7 @@ Rails.configuration.after_initialize do
     with_each_shard_by_database(ObserverAlert, :clean_up_old_alerts)
   end
 
-  Delayed::Periodic.cron 'ObserverAlert.create_assignment_missing_alerts', '*/5 * * * *', priority: Delayed::LOW_PRIORITY do
+  Delayed::Periodic.cron 'ObserverAlert.create_assignment_missing_alerts', '*/15 * * * *', priority: Delayed::LOW_PRIORITY do
     with_each_shard_by_database(ObserverAlert, :create_assignment_missing_alerts)
   end
 
@@ -252,10 +252,6 @@ Rails.configuration.after_initialize do
 
   Delayed::Periodic.cron 'Canvas::Oauth::KeyStorage.rotate_keys', '0 0 1 * *', priority: Delayed::LOW_PRIORITY do
     Canvas::Oauth::KeyStorage.rotate_keys
-  end
-
-  Delayed::Periodic.cron 'abandoned job cleanup', '*/10 * * * *' do
-    Delayed::Worker::HealthCheck.reschedule_abandoned_jobs
   end
 
   Delayed::Periodic.cron 'Purgatory.expire_old_purgatories', '0 0 * * *', priority: Delayed::LOWER_PRIORITY do
@@ -274,11 +270,26 @@ Rails.configuration.after_initialize do
     with_each_shard_by_database(ScheduledSmartAlert, :queue_current_jobs)
   end
 
+  Delayed::Periodic.cron 'Course.sync_homeroom_enrollments', '5 0 * * *' do
+    with_each_shard_by_database(Course, :sync_homeroom_enrollments)
+  end
+
   # the default is hourly, and we picked a weird minute just to avoid
   # synchronizing with other periodic jobs.
   Delayed::Periodic.cron 'AssetUserAccessLog.compact', '42 * * * *' do
     # using jitter should help spread out multiple shards on the same cluster doing these
     # write-heavy updates so that they don't all hit at the same time and run immediately back to back.
     with_each_shard_by_database(AssetUserAccessLog, :compact, jitter: 15.minutes)
+  end
+
+  if MultiCache.cache.is_a?(ActiveSupport::Cache::HaStore) && MultiCache.cache.options[:consul_event] && InstStatsd.settings.present?
+    Delayed::Periodic.cron 'HaStore.validate_consul_event', '5 * * * *' do
+      DatabaseServer.send_in_each_region(MultiCache, :validate_consul_event,
+          {
+            run_current_region_asynchronously: true,
+            singleton: 'HaStore.validate_consul_event'
+          }
+        )
+    end
   end
 end

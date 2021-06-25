@@ -18,9 +18,9 @@
 
 import React, {Suspense, useState} from 'react'
 import {arrayOf, func, number, object, oneOf, oneOfType, string} from 'prop-types'
-import {Modal} from '@instructure/ui-overlays'
+import {Modal} from '@instructure/ui-modal'
 import {Button, CloseButton} from '@instructure/ui-buttons'
-import {Heading} from '@instructure/ui-elements'
+import {Heading} from '@instructure/ui-heading'
 import {Spinner} from '@instructure/ui-spinner'
 import {Tabs} from '@instructure/ui-tabs'
 import {ToggleDetails} from '@instructure/ui-toggle-details'
@@ -41,7 +41,7 @@ function shouldBeDisabled(
   selectedPanel,
   usageRightNotSet
 ) {
-  if (error || usageRightNotSet) {
+  if (error || (usageRightNotSet && selectedPanel === 'COMPUTER')) {
     return true
   }
   switch (selectedPanel) {
@@ -88,6 +88,10 @@ const UploadFileModal = React.forwardRef(
     const [altText, setAltText] = useState('')
     const [isDecorativeImage, setIsDecorativeImage] = useState(false)
     const [displayAs, setDisplayAs] = useState('embed')
+    // even though usage rights might be required by the course, canvas has no place
+    // on the user to store it. Only Group and Course.
+    const requiresUsageRights =
+      contentProps?.session?.usageRightsRequired && /(?:course|group)/.test(trayProps.contextType)
 
     function handleAltTextChange(event) {
       setAltText(event.target.value)
@@ -104,7 +108,7 @@ const UploadFileModal = React.forwardRef(
     const submitDisabled = shouldBeDisabled(
       {fileUrl, theFile, unsplashData, error},
       selectedPanel,
-      contentProps?.session?.usageRightsRequired && usageRightsState.usageRight === 'choose'
+      requiresUsageRights && usageRightsState.usageRight === 'choose'
     )
 
     // Load the necessary session values, if not already loaded
@@ -168,7 +172,7 @@ const UploadFileModal = React.forwardRef(
                   return (
                     <Tabs.Panel
                       key={panel}
-                      renderTitle={function() {
+                      renderTitle={function () {
                         return formatMessage('Computer')
                       }}
                       selected={selectedPanel === 'COMPUTER'}
@@ -192,7 +196,7 @@ const UploadFileModal = React.forwardRef(
                   return (
                     <Tabs.Panel
                       key={panel}
-                      renderTitle={function() {
+                      renderTitle={function () {
                         return 'Unsplash'
                       }}
                       selected={selectedPanel === 'UNSPLASH'}
@@ -214,7 +218,7 @@ const UploadFileModal = React.forwardRef(
                   return (
                     <Tabs.Panel
                       key={panel}
-                      renderTitle={function() {
+                      renderTitle={function () {
                         return formatMessage('URL')
                       }}
                       selected={selectedPanel === 'URL'}
@@ -230,57 +234,62 @@ const UploadFileModal = React.forwardRef(
               return null
             })}
           </Tabs>
-          {// We shouldn't show the accordions until the session data is loaded.
-          Object.keys(contentProps.session || {}).length > 0 && (
-            <>
-              {selectedPanel === 'COMPUTER' && contentProps?.session?.usageRightsRequired && (
-                <View
-                  as="div"
-                  role="group"
-                  borderColor="primary"
-                  borderWidth="0 0 small 0"
-                  padding="medium"
-                >
-                  <ToggleDetails
-                    defaultExpanded
-                    summary={<Text size="x-large">{formatMessage('Usage Rights (required)')}</Text>}
+          {
+            // We shouldn't show the accordions until the session data is loaded.
+            Object.keys(contentProps.session || {}).length > 0 && (
+              <>
+                {selectedPanel === 'COMPUTER' && requiresUsageRights && (
+                  <View
+                    as="div"
+                    role="group"
+                    borderColor="primary"
+                    borderWidth="0 0 small 0"
+                    padding="medium"
                   >
-                    <UsageRightsSelectBox
-                      usageRightsState={usageRightsState}
-                      setUsageRightsState={setUsageRightsState}
-                      contextType={trayProps.contextType}
-                      contextId={trayProps.contextId}
-                      showMessage={false}
-                    />
-                  </ToggleDetails>
-                </View>
-              )}
-              {/image/.test(accept) && (
-                <View
-                  as="div"
-                  role="group"
-                  borderColor="primary"
-                  borderWidth="0 0 small 0"
-                  padding="medium"
-                >
-                  <ToggleDetails
-                    defaultExpanded={!contentProps?.session?.usageRightsRequired}
-                    summary={<Text size="x-large">{formatMessage('Attributes')}</Text>}
+                    <ToggleDetails
+                      defaultExpanded
+                      summary={
+                        <Text size="x-large">{formatMessage('Usage Rights (required)')}</Text>
+                      }
+                    >
+                      <UsageRightsSelectBox
+                        usageRightsState={usageRightsState}
+                        setUsageRightsState={setUsageRightsState}
+                        contextType={trayProps.contextType}
+                        contextId={trayProps.contextId}
+                        showMessage={false}
+                      />
+                    </ToggleDetails>
+                  </View>
+                )}
+                {/image/.test(accept) && (
+                  <View
+                    as="div"
+                    role="group"
+                    borderColor="primary"
+                    borderWidth="0 0 small 0"
+                    padding="medium"
                   >
-                    <ImageOptionsForm
-                      altText={altText}
-                      isDecorativeImage={isDecorativeImage}
-                      displayAs={displayAs}
-                      handleAltTextChange={handleAltTextChange}
-                      handleIsDecorativeChange={handleIsDecorativeChange}
-                      handleDisplayAsChange={handleDisplayAsChange}
-                      hideDimensions
-                    />
-                  </ToggleDetails>
-                </View>
-              )}
-            </>
-          )}
+                    <ToggleDetails
+                      defaultExpanded={!requiresUsageRights}
+                      summary={<Text size="x-large">{formatMessage('Attributes')}</Text>}
+                    >
+                      <ImageOptionsForm
+                        id="upload-file-form"
+                        altText={altText}
+                        isDecorativeImage={isDecorativeImage}
+                        displayAs={displayAs}
+                        handleAltTextChange={handleAltTextChange}
+                        handleIsDecorativeChange={handleIsDecorativeChange}
+                        handleDisplayAsChange={handleDisplayAsChange}
+                        hideDimensions
+                      />
+                    </ToggleDetails>
+                  </View>
+                )}
+              </>
+            )
+          }
         </Modal.Body>
         <Modal.Footer>
           <Button onClick={onDismiss}>{formatMessage('Close')}</Button>&nbsp;

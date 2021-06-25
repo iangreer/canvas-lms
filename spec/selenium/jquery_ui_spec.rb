@@ -1,5 +1,5 @@
-# encoding: UTF-8
-#
+# frozen_string_literal: true
+
 # Copyright (C) 2011 - present Instructure, Inc.
 #
 # This file is part of Canvas.
@@ -70,6 +70,8 @@ describe "jquery ui" do
     expect(active.tag_name).to eq 'input'
     active.send_keys(:tab)
     expect(active.tag_name).to eq 'button'
+    active.send_keys(:tab)
+    expect(active.tag_name).to eq 'div'
     active.send_keys(:tab)
     expect(active.tag_name).to eq 'select'
   end

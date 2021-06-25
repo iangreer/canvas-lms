@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2015 - present Instructure, Inc.
 #
@@ -22,7 +24,7 @@ describe LtiApiController, type: :request do
 
 
   let(:lti_student){ user_model }
-  let(:lti_course){ course_with_student({user: lti_student}).course }
+  let(:lti_course){ course_with_student({user: lti_student, active_course: true}).course }
   let(:tool) do
     tool = lti_course.context_external_tools.new(
         name: "bob",

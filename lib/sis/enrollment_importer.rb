@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2011 - present Instructure, Inc.
 #
@@ -65,13 +67,16 @@ module SIS
         User.touch_and_clear_cache_keys(ids_to_touch, :enrollments) if ids_to_touch.any?
       end
       i.enrollments_to_add_to_favorites.map(&:id).compact.each_slice(1000) do |sliced_ids|
-        Enrollment.send_later_enqueue_args(:batch_add_to_favorites,
-                                           {:priority => Delayed::LOW_PRIORITY, :strand => "batch_add_to_favorites_#{@root_account.global_id}"},
-                                           sliced_ids)
+        Enrollment.delay(priority: Delayed::LOW_PRIORITY, strand: "batch_add_to_favorites_#{@root_account.global_id}").
+          batch_add_to_favorites(sliced_ids)
       end
-      new_data = Enrollment::BatchStateUpdater.destroy_batch(i.enrollments_to_delete, sis_batch: @batch) if i.enrollments_to_delete.any?
-
-      i.roll_back_data.push(*new_data)
+      if i.enrollments_to_delete.any?
+        new_data = Enrollment::BatchStateUpdater.destroy_batch(
+          i.enrollments_to_delete,
+          sis_batch: @batch,
+          ignore_due_date_caching_for: i.courses_to_recache_due_dates)
+        i.roll_back_data.push(*new_data)
+      end
       SisBatchRollBackData.bulk_insert_roll_back_data(i.roll_back_data)
 
       i.success_count + i.enrollments_to_delete.count
@@ -152,7 +157,7 @@ module SIS
           end
 
           unless pseudo
-            err = "User not found for enrollment "
+            err = +"User not found for enrollment "
             err << "(User ID: #{enrollment_info.user_id}, Course ID: #{enrollment_info.course_id}, Section ID: #{enrollment_info.section_id})"
             @messages << SisBatch.build_error(enrollment_info.csv, err, sis_batch: @batch, row: enrollment_info.lineno, row_info: enrollment_info.row_info)
             next
@@ -170,8 +175,8 @@ module SIS
           @course ||= @root_account.all_courses.where(sis_source_id: enrollment_info.course_id).take unless enrollment_info.course_id.blank?
           @section ||= @root_account.course_sections.where(sis_source_id: enrollment_info.section_id).take unless enrollment_info.section_id.blank?
           if @course.nil? && @section.nil?
-            message = "Neither course nor section existed for user enrollment "
-            message << "(Course ID: #{enrollment_info.course_id}, Section ID: #{enrollment_info.section_id}, User ID: #{enrollment_info.user_id})"
+            message = "Neither course nor section existed for user enrollment " +
+              "(Course ID: #{enrollment_info.course_id}, Section ID: #{enrollment_info.section_id}, User ID: #{enrollment_info.user_id})"
             @messages << SisBatch.build_error(enrollment_info.csv, message, sis_batch: @batch, row: enrollment_info.lineno, row_info: enrollment_info.row_info)
             next
           end
@@ -197,9 +202,9 @@ module SIS
             (@course.id != @section.course_id && @section.nonxlist_course_id == @course.id)
 
           if @course.id != @section.course_id
-            message = "An enrollment listed a section (#{enrollment_info.section_id}) "
-            message << "and a course (#{enrollment_info.course_id}) that are unrelated "
-            message << "for user (#{enrollment_info.user_id})"
+            message = "An enrollment listed a section (#{enrollment_info.section_id}) " +
+              "and a course (#{enrollment_info.course_id}) that are unrelated " +
+              "for user (#{enrollment_info.user_id})"
             @messages << SisBatch.build_error(enrollment_info.csv, message, sis_batch: @batch, row: enrollment_info.lineno, row_info: enrollment_info.row_info)
             next
           end
@@ -255,20 +260,10 @@ module SIS
               next
             end
           end
-          roles =
-            if role.built_in?
-              # it's possible we're still migrating the root account ownership - so pull enrollments for all equivalent built in roles
-              # TODO remove after datafixup
-              @root_account.shard.activate do
-                Role.where(:workflow_state => 'built_in', :base_role_type => role.base_role_type).where("root_account_id = ? OR root_account_id IS NULL", @root_account.id).to_a
-              end
-            else
-              [role]
-            end
           enrollment = @section.all_enrollments.where(user_id: user,
                                                       type: type,
                                                       associated_user_id: associated_user_id,
-                                                      role_id: roles).take
+                                                      role_id: role).take
 
           unless enrollment
             enrollment = Enrollment.typed_enrollment(type).new

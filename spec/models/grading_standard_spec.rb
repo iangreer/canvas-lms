@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2011 - present Instructure, Inc.
 #
@@ -229,6 +231,13 @@ describe GradingStandard do
       score = @gs.grade_to_score('Z')
       expect(score).to eql(nil)
     end
+
+    it "should not return more than 3 decimal digits" do
+      score = @gs.grade_to_score('A-')
+      decimal_part = score.to_s.split('.')[1]
+      expect(decimal_part.length).to be <= 3
+    end
+
   end
 
   context "place in scheme" do

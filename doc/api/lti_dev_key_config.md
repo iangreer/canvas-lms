@@ -7,13 +7,11 @@ Configuring LTI Advantage Tools
 For a successful launch to occur, LTI Advantage Tools require configuration
 on both Canvas and inside the tool:
 
-- [Overview of an LTI Launch](#launch-overview)
- - [Step 1: Login Initiation](#step-1)
- - [Step 2: Authentication Response](#step-2)
- - [Step 3: LTI Launch](#step-3)
- - [Step 4: Resource Display](#step-4)
-- [Configuring Canvas Settings in the Tool](#config-in-tool)
-- [Configuring the Tool in Canvas](#config-in-canvas)
+- [Configuring LTI Advantage Tools](#configuring-lti-advantage-tools)
+- [Overview of an LTI Launch](#overview-of-an-lti-launch)
+- [Configuring Canvas in the Tool](#configuring-canvas-in-the-tool)
+- [Configuring the Tool in Canvas](#configuring-the-tool-in-canvas)
+  - [Anatomy of a JSON configuration](#anatomy-of-a-json-configuration)
 
 But first, the importance of each configuration setting can only be understood
 with a basic understanding of how an LTI launch occurs.
@@ -35,8 +33,8 @@ The <a href="http://www.imsglobal.org/spec/security/v1p0/" target="_blank">IMS S
  The request also includes a `login_hint` that is passed in the next step. Last, the request include the `target_link_uri` that has been configured on the Developer key; this is later used by the tool as a recommended final redirect.
 
 <a name="step-2"></a>
-###Step 2: Authentication Response
- To complete authentication, tools are expected to send back an <a href="http://www.imsglobal.org/spec/security/v1p0/#step-2-authentication-request" target="_blank">authentication response</a> to an "OIDC Authorization end-point".  This can be a GET or POST. For cloud-hosted Canvas, regardless of the domain used by the client, the endpoint is always:
+###Step 2: Authentication Request
+ To complete authentication, tools are expected to send back an <a href="http://www.imsglobal.org/spec/security/v1p0/#step-2-authentication-request" target="_blank">authentication request</a> to an "OIDC Authorization end-point".  This can be a GET or POST. For cloud-hosted Canvas, regardless of the domain used by the client, the endpoint is always:
 
  - `https://canvas.instructure.com/api/lti/authorize_redirect` (if launched from a **production** environment)
  - `https://canvas.beta.instructure.com/api/lti/authorize_redirect` (if launched from a **beta** environment)
@@ -50,7 +48,7 @@ The <a href="http://www.imsglobal.org/spec/security/v1p0/" target="_blank">IMS S
  - a `state` parameter the tool will use to validate the request in Step 4.
 
 <a name="step-3"></a>
-###Step 3: LTI Launch
+###Step 3: Authentication Response (LTI Launch)
  Canvas will use the `client_id` to lookup which developer key to use and then check the `redirect_uri` that was sent in the previous step and ensure that there is a exact-matching `redirect_uri` on the developer key. Canvas then sends its <a href="http://www.imsglobal.org/spec/security/v1p0/#step-3-authentication-response" target="_blank">authentication response</a> to the `redirect_uri` that the tool provided in Step 2. The request will include an `id_token` which is a signed JWT containing the LTI payload (user identifiers, course contextual data, custom data, etc.). Tools must <a href="http://www.imsglobal.org/spec/security/v1p0/#authentication-response-validation" target="_blank">validate the request is actually coming from Canvas</a> using <a href="#config-in-tool" target="_blank">Canvas' public JWKs</a>.
 
 <a name="step-4"></a>
@@ -116,7 +114,6 @@ also found in the placements sub-menu in the left-navigation of this documentati
 {  
    "title":"The Best Tool",
    "description":"1.3 Test Tool used for documentation purposes.",
-   "privacy_level":"public",
    "oidc_initiation_url":"https://your.oidc_initiation_url",
    "target_link_uri":"https://your.target_link_uri",
    "scopes":[
@@ -128,6 +125,7 @@ also found in the placements sub-menu in the left-navigation of this documentati
          "domain":"thebesttool.com",
          "tool_id":"the-best-tool",
          "platform":"canvas.instructure.com",
+         "privacy_level":"public",
          "settings":{  
             "text":"Launch The Best Tool",
             "icon_url":"https://some.icon.url/tool-level.png",
@@ -225,30 +223,6 @@ also found in the placements sub-menu in the left-navigation of this documentati
 
       </td>
     </tr>    
-
-<!-- privacy_level -->  
-    <tr class="request-param ">
-      <td>privacy_level</td>
-      <td>
-
-        Required
-
-      </td>
-      <td>string</td>
-
-
-
-      <td class="param-desc">
-
-<p>What level of user information to send to the external tool.</p>
-
-
-        <p class="param-values">
-          <span class="allowed">Allowed values:</span> <code class="enum">anonymous</code>, <code class="enum">public</code>
-        </p>
-
-      </td>
-    </tr>
 
 <!-- oidc_initiation_url -->  
     <tr class="request-param ">
@@ -396,6 +370,31 @@ object for placement-specific target_link_uri's</p>
 
       </td>
     </tr>
+
+<!-- privacy_level -->  
+    <tr class="request-param ">
+      <td>privacy_level</td>
+      <td>
+
+        Required
+
+      </td>
+      <td>string</td>
+
+
+
+      <td class="param-desc">
+
+<p>What level of user information to send to the external tool.</p>
+
+
+        <p class="param-values">
+          <span class="allowed">Allowed values:</span> <code class="enum">anonymous</code>, <code class="enum">public</code>
+        </p>
+
+      </td>
+    </tr>
+
 
 <!-- settings -->      
     <tr class="request-param ">

@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2015 - present Instructure, Inc.
 #
@@ -34,7 +36,7 @@ module Users
       elsif send_confirmation
         send_confirmation_email(user, pseudonym)
         return true
-      elsif channel.has_merge_candidates?
+      elsif pseudonym.account.feature_enabled?(:self_service_user_merge) && channel.has_merge_candidates?
         channel.send_merge_notification!
       end
       false

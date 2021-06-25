@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2011 - present Instructure, Inc.
 #
@@ -1820,6 +1822,17 @@ describe 'Submissions API', type: :request do
         submission_json = student_json.fetch("submissions").find { |s| s.fetch("id") == student1_sub.id }
         expect(submission_json.fetch("has_postable_comments")).to be false
       end
+
+      it "is false when unposted and only draft comments exist" do
+        student1_sub.add_comment(
+          author: @teacher,
+          comment: "maybe bad job but not sure, let me think about it",
+          hidden: true,
+          draft_comment: true
+        )
+        submission_json = student_json.fetch("submissions").find { |s| s.fetch("id") == student1_sub.id }
+        expect(submission_json.fetch("has_postable_comments")).to be false
+      end
     end
 
     context 'OriginalityReport' do
@@ -2973,6 +2986,78 @@ describe 'Submissions API', type: :request do
       expect(json['excused']).to eq false
     end
 
+    it "sets the submission grader to the current user when setting late_policy_status" do
+      submission = @assignment.submission_for_student(@student)
+      submission.update!(grader: nil)
+
+      api_call(
+        :put,
+        "/api/v1/courses/#{@course.id}/assignments/#{@assignment.id}/submissions/#{@student.id}.json",
+        {
+          controller: 'submissions_api',
+          action: 'update',
+          format: 'json',
+          course_id: @course.id.to_s,
+          assignment_id: @assignment.id.to_s,
+          user_id: @student.id.to_s
+        }, {
+          submission: { late_policy_status: "missing" }
+        }
+      )
+
+      expect(submission.reload.grader_id).to be @teacher.id
+    end
+
+    it "creates a new submission version when setting late_policy_status results in a different grade" do
+      submission = @assignment.submission_for_student(@student)
+      # The first grade given to a submission doesn't result in a new version.
+      @assignment.grade_student(@student, score: 1, grader: @teacher)
+
+      expect {
+        api_call(
+          :put,
+          "/api/v1/courses/#{@course.id}/assignments/#{@assignment.id}/submissions/#{@student.id}.json",
+          {
+            controller: 'submissions_api',
+            action: 'update',
+            format: 'json',
+            course_id: @course.id.to_s,
+            assignment_id: @assignment.id.to_s,
+            user_id: @student.id.to_s
+          }, {
+            submission: { late_policy_status: "missing" }
+          }
+        )
+      }.to change {
+        submission.reload.versions.count
+      }.by(1)
+    end
+
+    it "setting late_policy_status and grade in same request do not create two versions" do
+      submission = @assignment.submission_for_student(@student)
+      # The first grade given to a submission doesn't result in a new version.
+      @assignment.grade_student(@student, score: 1, grader: @teacher)
+
+      expect {
+        api_call(
+          :put,
+          "/api/v1/courses/#{@course.id}/assignments/#{@assignment.id}/submissions/#{@student.id}.json",
+          {
+            controller: 'submissions_api',
+            action: 'update',
+            format: 'json',
+            course_id: @course.id.to_s,
+            assignment_id: @assignment.id.to_s,
+            user_id: @student.id.to_s
+          }, {
+            submission: { late_policy_status: "missing", posted_grade: "1" }
+          }
+        )
+      }.to change {
+        submission.reload.versions.count
+      }.by(1)
+    end
+
     context "group assignments" do
       before do
         @student2 = @course.enroll_student(User.create!, enrollment_state: :active).user
@@ -3739,46 +3824,73 @@ describe 'Submissions API', type: :request do
     expect(json['grade']).to eq grade
   end
 
-  it "allows posting a rubric assessment" do
-    student = user_factory(active_all: true)
-    course_with_teacher(:active_all => true)
-    @course.enroll_student(student).accept!
-    a1 = @course.assignments.create!(:title => 'assignment1', :grading_type => 'points', :points_possible => 12)
-    rubric = rubric_model(:user => @user, :context => @course,
-                          :data => larger_rubric_data)
-    a1.create_rubric_association(:rubric => rubric, :purpose => 'grading', :use_for_grading => true, :context => @course)
+  context "posting rubric assessments" do
+    before(:once) do
+      @student = user_factory(active_all: true)
+      course_with_teacher(:active_all => true)
+      @course.enroll_student(@student).accept!
+      @a1 = @course.assignments.create!(:title => 'assignment1', :grading_type => 'points', :points_possible => 12)
+      rubric = rubric_model(:user => @user, :context => @course, :data => larger_rubric_data)
+      @rubric_association = @a1.create_rubric_association(
+        :rubric => rubric,
+        :purpose => 'grading',
+        :use_for_grading => true,
+        :context => @course
+      )
+    end
 
-    api_call(:put,
-          "/api/v1/courses/#{@course.id}/assignments/#{a1.id}/submissions/#{student.id}.json",
-          { :controller => 'submissions_api', :action => 'update',
-            :format => 'json', :course_id => @course.id.to_s,
-            :assignment_id => a1.id.to_s, :user_id => student.id.to_s },
-          { :rubric_assessment =>
-             { :crit1 => { :points => 7 },
-               :crit2 => { :points => 2, :comments => 'Rock on' } } })
+    it "allows posting a rubric assessment" do
+      api_call(
+        :put,
+        "/api/v1/courses/#{@course.id}/assignments/#{@a1.id}/submissions/#{@student.id}.json",
+        { :controller => 'submissions_api', :action => 'update',
+          :format => 'json', :course_id => @course.id.to_s,
+          :assignment_id => @a1.id.to_s, :user_id => @student.id.to_s },
+        { :rubric_assessment =>
+           { :crit1 => { :points => 7 },
+             :crit2 => { :points => 2, :comments => 'Rock on' } } }
+      )
 
-    expect(Submission.count).to eq 1
-    @submission = Submission.first
-    expect(@submission.user_id).to eq student.id
-    expect(@submission.score).to eq 9
-    expect(@submission.rubric_assessment).not_to be_nil
-    expect(@submission.rubric_assessment.data).to eq(
-      [{:description=>"B",
-        :criterion_id=>"crit1",
-        :comments_enabled=>true,
-        :points=>7,
-        :learning_outcome_id=>nil,
-        :id=>"rat2",
-        :comments=>nil},
-      {:description=>"Pass",
-        :criterion_id=>"crit2",
-        :comments_enabled=>true,
-        :points=>2,
-        :learning_outcome_id=>nil,
-        :id=>"rat1",
-        :comments=>"Rock on",
-        :comments_html=>"Rock on"}]
-    )
+      expect(Submission.count).to eq 1
+      @submission = Submission.first
+      expect(@submission.user_id).to eq @student.id
+      expect(@submission.score).to eq 9
+      expect(@submission.rubric_assessment).not_to be_nil
+      expect(@submission.rubric_assessment.data).to eq(
+        [{:description=>"B",
+          :criterion_id=>"crit1",
+          :comments_enabled=>true,
+          :points=>7,
+          :learning_outcome_id=>nil,
+          :id=>"rat2",
+          :comments=>nil},
+        {:description=>"Pass",
+          :criterion_id=>"crit2",
+          :comments_enabled=>true,
+          :points=>2,
+          :learning_outcome_id=>nil,
+          :id=>"rat1",
+          :comments=>"Rock on",
+          :comments_html=>"Rock on"}]
+      )
+    end
+
+    it "does not allow posting a rubric assessment when the rubric association is soft-deleted" do
+      @rubric_association.destroy
+      api_call(
+        :put,
+        "/api/v1/courses/#{@course.id}/assignments/#{@a1.id}/submissions/#{@student.id}.json",
+        { :controller => 'submissions_api', :action => 'update',
+          :format => 'json', :course_id => @course.id.to_s,
+          :assignment_id => @a1.id.to_s, :user_id => @student.id.to_s },
+        { :rubric_assessment =>
+           { :crit1 => { :points => 7 },
+             :crit2 => { :points => 2, :comments => 'Rock on' } } }
+      )
+
+      @submission = Submission.first
+      expect(@submission.rubric_assessment).to be_nil
+    end
   end
 
   it "validates the rubric assessment" do
@@ -4199,6 +4311,13 @@ describe 'Submissions API', type: :request do
         expect(json['body']).to eq @submission.body
       end
 
+      it "creates a student annotation submission" do
+        a1 = attachment_model(:context => @course)
+        @assignment.update(submission_types: 'student_annotation', annotatable_attachment_id: a1.id)
+        json = api_call(:post, @url, @args, { :submission => { submission_type: "student_annotation", annotatable_attachment_id: a1.id } }, {}, expected_status: 201)
+        expect(json['workflow_state']).to eq 'submitted'
+      end
+
       it "processs html content in body" do
         @assignment.update(:submission_types => 'online_text_entry')
         should_process_incoming_user_content(@course) do |content|
@@ -4298,6 +4417,12 @@ describe 'Submissions API', type: :request do
         assert_status(200)
       end
 
+      it "rejects uploading files when file extension is not given" do
+        @assignment.update(allowed_extensions: ['jpg'])
+        preflight(name: 'name', size: 12345)
+        assert_status(400)
+      end
+
       it "rejects uploading files when filetype is not allowed" do
         @assignment.update(:allowed_extensions => ['doc'])
         preflight(name: 'test.txt', size: 12345, content_type: 'text/plain')
@@ -4353,10 +4478,10 @@ describe 'Submissions API', type: :request do
           end
         end
 
-        it "returns upload_params" do
+        it "returns upload_params infering the filename from the URL" do
           upload_json = {
-            "filename" => nil,
-            "content_type" => nil,
+            "filename" => "test",
+            "content_type" => "unknown/unknown",
             "target_url" => "http://example.com/test"
           }
           expect(json_response['upload_params']).to eq upload_json
@@ -4566,7 +4691,7 @@ describe 'Submissions API', type: :request do
     expect(json[0]["attachments"][0]["canvadoc_document_id"]).to eq canvadoc_document_id
   end
 
-  it "includes crocodoc whitelist ids in the preview url for attachments" do
+  it "includes crocodoc allowed ids in the preview url for attachments" do
     allow(Canvas::Crocodoc).to receive(:config).and_return({a: 1})
 
     course_with_teacher_logged_in active_all: true
@@ -4601,8 +4726,8 @@ describe 'Submissions API', type: :request do
     parsed_blob = JSON.parse parsed_params["blob"].first
     expect(parsed.path).to eq "/api/v1/crocodoc_session"
 
-    expect(parsed_blob["moderated_grading_whitelist"]).to include(@student.moderated_grading_ids.as_json)
-    expect(parsed_blob["moderated_grading_whitelist"]).to include(@teacher.moderated_grading_ids.as_json)
+    expect(parsed_blob["moderated_grading_allow_list"]).to include(@student.moderated_grading_ids.as_json)
+    expect(parsed_blob["moderated_grading_allow_list"]).to include(@teacher.moderated_grading_ids.as_json)
   end
 
 
@@ -4903,6 +5028,29 @@ describe 'Submissions API', type: :request do
       run_jobs
       s1 = @student1.submissions.first
       expect(s1.grade).to be_nil
+    end
+
+    it "will not enqueue jobs for deleted assignments" do
+      @a1.destroy
+      grade_data = {
+        :grade_data => {
+          @student1.id => { :posted_grade => '75%'},
+          @student2.id => { :posted_grade => '95%'}
+        }
+      }
+
+      json = api_call(:post,
+        "/api/v1/courses/#{@course.id}/assignments/#{@a1.id}/submissions/update_grades",
+        { :controller => 'submissions_api', :action => 'bulk_update',
+          :format => 'json', :course_id => @course.id.to_s,
+          :assignment_id => @a1.id.to_s }, grade_data)
+      assert_status(400)
+      run_jobs
+      expect(Submission.count).to eq(2)
+      s1 = @student1.submissions.first
+      expect(s1.grade).to be_nil
+      s2 = @student2.submissions.first
+      expect(s2.grade).to be_nil
     end
   end
 

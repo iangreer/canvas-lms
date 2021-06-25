@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2017 - present Instructure, Inc.
 #
@@ -48,7 +50,7 @@ module Lti
 #           "type": "string"
 #         },
 #         "submission_type": {
-#           "description": "The types of submission ex: ('online_text_entry'|'online_url'|'online_upload'|'media_recording')",
+#           "description": "The types of submission ex: ('online_text_entry'|'online_url'|'online_upload'|'media_recording'|'student_annotation')",
 #           "example": "online_text_entry",
 #           "type": "string",
 #           "allowableValues": {
@@ -56,7 +58,8 @@ module Lti
 #               "online_text_entry",
 #               "online_url",
 #               "online_upload",
-#               "media_recording"
+#               "media_recording",
+#               "student_annotation"
 #             ]
 #           }
 #         },
@@ -228,7 +231,7 @@ module Lti
 
     def api_json(submission)
       submission_attributes = %w(id body url submitted_at assignment_id user_id submission_type workflow_state attempt attachments)
-      sub_hash = filtered_json(model: submission, whitelist: submission_attributes)
+      sub_hash = filtered_json(model: submission, allow_list: submission_attributes)
       sub_hash[:user_id] = Lti::Asset.opaque_identifier_for(User.find(sub_hash[:user_id]), context: submission.assignment.context)
       if submission.turnitin_data[:eula_agreement_timestamp].present?
         sub_hash[:eula_agreement_timestamp] = submission.turnitin_data[:eula_agreement_timestamp]
@@ -242,14 +245,14 @@ module Lti
 
     def attachment_json(attachment)
       attachment_attributes = %w(id display_name filename content-type size created_at updated_at)
-      attach = filtered_json(model: attachment, whitelist: attachment_attributes)
+      attach = filtered_json(model: attachment, allow_list: attachment_attributes)
       attach[:upload_status] = AttachmentUploadStatus.upload_status(attachment)
       attach[:url] = attachment_url(attachment)
       attach
     end
 
-    def filtered_json(model:, whitelist:)
-      model.as_json(include_root: false).select { |k, _| whitelist.include?(k) }
+    def filtered_json(model:, allow_list:)
+      model.as_json(include_root: false).select { |k, _| allow_list.include?(k) }
     end
 
   end

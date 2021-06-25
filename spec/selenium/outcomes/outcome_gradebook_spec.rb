@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2015 - present Instructure, Inc.
 #
@@ -56,6 +58,17 @@ describe "outcome gradebook" do
       wait_for_ajaximations
     end
 
+    def median_values
+      f('.al-trigger').click
+      ff('.al-options .ui-menu-item').second.click
+      wait_for_ajax_requests
+      selected_values
+    end
+
+    def selected_values
+      ff('.outcome-gradebook-container .headerRow_1 .outcome-score').map(&:text)
+    end
+
     it "should not be visible by default" do
       Gradebook.visit(@course)
       f('.assignment-gradebook-container .gradebook-menus button').click
@@ -92,18 +105,26 @@ describe "outcome gradebook" do
         expect(f('.outcome-gradebook-container .headers_1')).not_to contain_css('.slick-header-column')
       end
 
+      def toggle_lmgb_filter_dropdown
+        f('[data-component="lmgb-student-filter-trigger"]').click
+      end
+
+      def toggle_no_results_students
+        toggle_lmgb_filter_dropdown
+        f('[data-component="lmgb-student-filter-unassessed-students"]').click
+        wait_for_ajax_requests
+      end
+
       it "filter out students without results" do
         get "/courses/#{@course.id}/gradebook"
         select_learning_mastery
-        three_students
-
-        f('#no_results_students').click
-        wait_for_ajax_requests
         no_students
 
-        f('#no_results_students').click
-        wait_for_ajax_requests
+        toggle_no_results_students
         three_students
+
+        toggle_no_results_students
+        no_students
       end
 
       it "filter out outcomes without results" do
@@ -122,30 +143,16 @@ describe "outcome gradebook" do
         get "/courses/#{@course.id}/gradebook"
         select_learning_mastery
         two_outcomes
-        three_students
-
-        f('#no_results_outcomes').click
-        no_outcomes
-        three_students
-
-        f('#no_results_students').click
-        wait_for_ajax_requests
-        no_outcomes
         no_students
 
-        f('#no_results_students').click
-        wait_for_ajax_requests
+        toggle_no_results_students
+        f('#no_results_outcomes').click
         no_outcomes
         three_students
 
         f('#no_results_outcomes').click
         two_outcomes
         three_students
-
-        f('#no_results_students').click
-        wait_for_ajax_requests
-        two_outcomes
-        no_students
       end
 
       it 'outcomes without results filter preserved after page refresh' do
@@ -154,44 +161,11 @@ describe "outcome gradebook" do
         wait_for_ajax_requests
 
         expect(f('#no_results_outcomes').selected?).to be false
-        expect(f('#no_results_students').selected?).to be false
 
         f('#no_results_outcomes').click
         refresh_page
 
         expect(f('#no_results_outcomes').selected?).to be true
-        expect(f('#no_results_students').selected?).to be false
-      end
-
-      it 'students without results filter preserved after page refresh' do
-        get "/courses/#{@course.id}/gradebook"
-        select_learning_mastery
-        wait_for_ajax_requests
-
-        expect(f('#no_results_outcomes').selected?).to be false
-        expect(f('#no_results_students').selected?).to be false
-
-        f('#no_results_students').click
-        refresh_page
-
-        expect(f('#no_results_outcomes').selected?).to be false
-        expect(f('#no_results_students').selected?).to be true
-      end
-
-      it 'outcomes and students without results filter preserved after page refresh' do
-        get "/courses/#{@course.id}/gradebook"
-        select_learning_mastery
-        wait_for_ajax_requests
-
-        expect(f('#no_results_outcomes').selected?).to be false
-        expect(f('#no_results_students').selected?).to be false
-
-        f('#no_results_outcomes').click
-        f('#no_results_students').click
-        refresh_page
-
-        expect(f('#no_results_outcomes').selected?).to be true
-        expect(f('#no_results_students').selected?).to be true
       end
 
       def result(user, alignment, score, opts = {})
@@ -216,14 +190,14 @@ describe "outcome gradebook" do
           wait_for_ajax_requests
 
           # mean
-          means = ff('.outcome-gradebook-container .headerRow_1 .outcome-score').map(&:text)
+          means = selected_values
           expect(means).to contain_exactly("2.33", "2.67")
 
           f('#no_results_outcomes').click
           wait_for_ajax_requests
 
           # mean
-          means = ff('.outcome-gradebook-container .headerRow_1 .outcome-score').map(&:text)
+          means = selected_values
           expect(means).to contain_exactly("2.33", "2.67")
         end
 
@@ -233,14 +207,11 @@ describe "outcome gradebook" do
           wait_for_ajax_requests
 
           # mean
-          averages = ff('.outcome-gradebook-container .headerRow_1 .outcome-score').map(&:text)
+          averages = selected_values
           expect(averages).to contain_exactly("2.33", "2.67")
 
           # median
-          f('.al-trigger').click
-          ff('.al-options .ui-menu-item').second.click
-          wait_for_ajax_requests
-          medians = ff('.outcome-gradebook-container .headerRow_1 .outcome-score').map(&:text)
+          medians = median_values
           expect(medians).to contain_exactly("2", "3")
 
           # switch to first section
@@ -248,7 +219,7 @@ describe "outcome gradebook" do
           wait_for_ajax_requests
 
           # median
-          medians = ff('.outcome-gradebook-container .headerRow_1 .outcome-score').map(&:text)
+          medians = selected_values
           expect(medians).to contain_exactly("2.5", "2.5")
 
           # switch to second section
@@ -259,9 +230,200 @@ describe "outcome gradebook" do
           refresh_page
 
           # should remain on second section, with mean
-          means = ff('.outcome-gradebook-container .headerRow_1 .outcome-score').map(&:text)
+          means = selected_values
           expect(means).to contain_exactly("2", "3")
         end
+
+        context 'inactive/concluded LMGB filters' do
+          it 'correctly displays inactive enrollments when the filter option is selected' do
+            StudentEnrollment.find_by(user_id: @student_1.id).deactivate
+
+            get "/courses/#{@course.id}/gradebook"
+            select_learning_mastery
+            wait_for_ajax_requests
+
+            active_students = [@student_2.name, @student_3.name]
+            student_names = ff('.outcome-student-cell-content').map {|cell| cell.text.split("\n")[0]}
+            expect(student_names.sort).to eq(active_students)
+
+            f('button[data-component="lmgb-student-filter-trigger"]').click
+            f('span[data-component="lmgb-student-filter-inactive-enrollments"]').click
+            wait_for_ajax_requests
+
+            active_students = [@student_1.name, @student_2.name, @student_3.name]
+            student_names = ff('.outcome-student-cell-content').map {|cell| cell.text.split("\n")[0]}
+            expect(student_names.sort).to eq(active_students)
+          end
+
+          it 'correctly displays concluded enrollments when the filter option is selected' do
+            StudentEnrollment.find_by(user_id: @student_1.id).conclude
+
+            get "/courses/#{@course.id}/gradebook"
+            select_learning_mastery
+            wait_for_ajax_requests
+
+            active_students = [@student_2.name, @student_3.name]
+            student_names = ff('.outcome-student-cell-content').map {|cell| cell.text.split("\n")[0]}
+            expect(student_names.sort).to eq(active_students)
+
+            f('button[data-component="lmgb-student-filter-trigger"]').click
+            f('span[data-component="lmgb-student-filter-concluded-enrollments"]').click
+            wait_for_ajax_requests
+
+            active_students = [@student_1.name, @student_2.name, @student_3.name]
+            student_names = ff('.outcome-student-cell-content').map {|cell| cell.text.split("\n")[0]}
+            expect(student_names.sort).to eq(active_students)
+          end
+
+          it 'correctly displays unassessed students when the filter option is selected' do
+            student_4 = User.create!(:name => 'Unassessed Student')
+            student_4.register!
+            @course.enroll_student(student_4)
+
+            get "/courses/#{@course.id}/gradebook"
+            select_learning_mastery
+            wait_for_ajax_requests
+
+            active_students = [@student_1.name, @student_2.name, @student_3.name]
+            student_names = ff('.outcome-student-cell-content').map {|cell| cell.text.split("\n")[0]}
+            expect(student_names.sort).to eq(active_students)
+
+            f('button[data-component="lmgb-student-filter-trigger"]').click
+            f('span[data-component="lmgb-student-filter-unassessed-students"]').click
+            wait_for_ajax_requests
+
+            active_students = [@student_1.name, @student_2.name, @student_3.name, student_4.name]
+            student_names = ff('.outcome-student-cell-content').map {|cell| cell.text.split("\n")[0]}
+            expect(student_names.sort).to eq(active_students.sort)
+          end
+
+          it 'retains focus on filter button after a filter is chosen' do
+            student_4 = User.create!(:name => 'Unassessed Student')
+            student_4.register!
+            @course.enroll_student(student_4)
+
+            get "/courses/#{@course.id}/gradebook"
+            select_learning_mastery
+            wait_for_ajax_requests
+
+            f('button[data-component="lmgb-student-filter-trigger"]').click
+            f('span[data-component="lmgb-student-filter-unassessed-students"]').click
+            wait_for_ajax_requests
+            expect(ff('.outcome-student-cell-content').map(&:text)).to include(a_string_matching(/Unassessed Student/))
+            check_element_has_focus(f('button[data-component="lmgb-student-filter-trigger"]'))
+          end
+        end
+
+        context 'with learning mastery scales enabled' do
+          before(:once) do
+            @rating1 = OutcomeProficiencyRating.new(description: 'best', points: 10, mastery: true, color: '00ff00')
+            @rating2 = OutcomeProficiencyRating.new(description: 'worst', points: 0, mastery: false, color: 'ff0000')
+            @proficiency = OutcomeProficiency.create!(outcome_proficiency_ratings: [@rating1, @rating2], context: Account.default)
+            @calculation_method = OutcomeCalculationMethod.create!(context: Account.default, calculation_method: 'latest')
+            @second_outcome_assignment = @course.assignments.create!(
+              title: 'Outcome 1 Second Assignment',
+              grading_type: 'points',
+              points_possible: 10,
+              submission_types: 'online_text_entry',
+              due_at: 2.days.ago
+            )
+            align3 = @outcome1.align(@second_outcome_assignment, @course)
+            result(@student_1, align3, 0)
+            result(@student_2, align3, 1)
+            result(@student_3, align3, 2)
+          end
+
+        it "Displays the mastery scales and proficiency calculations once enabled" do
+          get "/courses/#{@course.id}/gradebook"
+          select_learning_mastery
+          wait_for_ajax_requests
+
+          # mean
+          averages = selected_values
+          expect(averages).to contain_exactly("1.58", "2.33")
+
+          # median
+          medians = median_values
+          expect(medians).to contain_exactly("1.7", "2")
+
+          Account.default.set_feature_flag!('account_level_mastery_scales', 'on')
+          # refresh page
+          refresh_page
+
+          # mean
+          averages = selected_values
+          expect(averages).to contain_exactly("3.33", "7.78")
+
+          # median
+          medians = median_values
+          expect(medians).to contain_exactly("3.33", "6.67")
+        end
+
+        it "Displays changes to the mastery scales and proficiency calculations" do
+
+          Account.default.set_feature_flag!('account_level_mastery_scales', 'on')
+
+          get "/courses/#{@course.id}/gradebook"
+          select_learning_mastery
+          wait_for_ajax_requests
+
+          # mean
+          averages = selected_values
+          expect(averages).to contain_exactly("3.33", "7.78")
+
+          # median
+          medians = median_values
+          expect(medians).to contain_exactly("3.33", "6.67")
+
+          # Update the ratings points, and use the highest calculation method so averages will be over 100
+          @rating1.points = 100
+          @rating2.points = 10
+          @calculation_method.calculation_method = 'highest'
+          @calculation_method.save!
+          @proficiency.save!
+
+          # refresh page
+          refresh_page
+
+          # mean
+          averages = selected_values
+          expect(averages).to contain_exactly("111.11", "77.78")
+
+          # median
+          medians = median_values
+          expect(medians).to contain_exactly("100", "66.67")
+        end
+
+        it "Displays the course level outcome values when FF is turned off" do
+
+          Account.default.set_feature_flag!('account_level_mastery_scales', 'on')
+
+          get "/courses/#{@course.id}/gradebook"
+          select_learning_mastery
+          wait_for_ajax_requests
+
+          # mean
+          averages = selected_values
+          expect(averages).to contain_exactly("3.33", "7.78")
+
+          # median
+          medians = median_values
+          expect(medians).to contain_exactly("3.33", "6.67")
+
+          Account.default.set_feature_flag!('account_level_mastery_scales', 'off')
+
+          # refresh page
+          refresh_page
+
+          # mean
+          averages = selected_values
+          expect(averages).to contain_exactly("1.58", "2.33")
+
+          # median
+          medians = median_values
+          expect(medians).to contain_exactly("1.7", "2")
+        end
+       end
       end
 
       context 'with non-scoring results' do
@@ -295,6 +457,7 @@ describe "outcome gradebook" do
         f('.assignment-gradebook-container .gradebook-menus button').click
         f('span[data-menu-item-id="learning-mastery"]').click
 
+        toggle_no_results_students
         expect(ff('.outcome-student-cell-content')).to have_size 3
 
         select_section('All Sections')

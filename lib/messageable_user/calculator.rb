@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2013 - present Instructure, Inc.
 #
@@ -20,7 +22,7 @@ require_dependency 'messageable_user'
 
 class MessageableUser
   class Calculator
-    CONTEXT_RECIPIENT = /\A(course|section|group)_(\d+)(_([a-z]+))?\z/
+    CONTEXT_RECIPIENT = /\A(course|section|group|discussion_topic)_(\d+)(_([a-z]+))?\z/
     INDIVIDUAL_RECIPIENT = /\A\d+\z/
 
     # all work is done within the context of a user. avoid passing it around in
@@ -226,30 +228,30 @@ class MessageableUser
       messageable_groups_by_shard.values.flatten
     end
 
-    def self.slave_module
-      @slave_module ||= Module.new.tap { |m| prepend(m) }
+    def self.secondary_module
+      @secondary_module ||= Module.new.tap { |m| prepend(m) }
     end
 
-    def self.slave(method)
-      slave_module.module_eval <<-RUBY, __FILE__, __LINE__ + 1
+    def self.secondary(method)
+      secondary_module.module_eval <<-RUBY, __FILE__, __LINE__ + 1
         def #{method}(*)
-          Shackles.activate(:slave) { super }
+          GuardRail.activate(:secondary) { super }
         end
       RUBY
     end
 
-    slave :load_messageable_users
-    slave :messageable_users_in_context
-    slave :messageable_users_in_course
-    slave :messageable_users_in_section
-    slave :messageable_users_in_group
-    slave :count_messageable_users_in_context
-    slave :count_messageable_users_in_course
-    slave :count_messageable_users_in_section
-    slave :count_messageable_users_in_group
-    slave :search_messageable_users
-    slave :messageable_sections
-    slave :messageable_groups
+    secondary :load_messageable_users
+    secondary :messageable_users_in_context
+    secondary :messageable_users_in_course
+    secondary :messageable_users_in_section
+    secondary :messageable_users_in_group
+    secondary :count_messageable_users_in_context
+    secondary :count_messageable_users_in_course
+    secondary :count_messageable_users_in_section
+    secondary :count_messageable_users_in_group
+    secondary :search_messageable_users
+    secondary :messageable_sections
+    secondary :messageable_groups
 
     # ==========================  end of public API  ==========================
     # |                                                                       |
@@ -379,11 +381,19 @@ class MessageableUser
     # |  top-level query construction methods  |
     # ==========================================
 
-    def messageable_users_in_context_scope(asset_string, options={})
-      return unless asset_string.sub(/_all\z/, '') =~ CONTEXT_RECIPIENT
+    def messageable_users_in_context_scope(asset_string_or_asset, options={})
+      if asset_string_or_asset.is_a?(String)
+        asset_string = asset_string_or_asset
+        return unless asset_string.sub(/_all\z/, '') =~ CONTEXT_RECIPIENT
 
-      context_type = $1
-      context_id = $2.to_i
+        context_type = $1
+        context_id_or_object = $2.to_i
+      else
+        context_type = asset_string_or_asset.class_name.underscore
+        context_type = 'section' if context_type == 'course_section'
+        context_id_or_object = asset_string_or_asset
+      end
+
       enrollment_type = $4
       if enrollment_type == 'admins'
         enrollment_types = ['TeacherEnrollment','TaEnrollment']
@@ -392,9 +402,10 @@ class MessageableUser
       end
 
       case context_type
-      when 'course' then messageable_users_in_course_scope(context_id, enrollment_types, options)
-      when 'section' then messageable_users_in_section_scope(context_id, enrollment_types, options)
-      when 'group' then messageable_users_in_group_scope(context_id, options)
+      when 'course' then messageable_users_in_course_scope(context_id_or_object, enrollment_types, options)
+      when 'section' then messageable_users_in_section_scope(context_id_or_object, enrollment_types, options)
+      when 'group' then messageable_users_in_group_scope(context_id_or_object, options)
+      when 'announcement', 'discussion_topic' then messageable_users_in_discussion_scope(context_id_or_object, options)
       end
     end
 
@@ -435,6 +446,14 @@ class MessageableUser
     # populated only with the course of the given section.
     def messageable_users_in_section_scope(section_or_id, enrollment_types=nil, options={})
       return unless section_or_id
+
+      # Discussion Topics could be assigned to multiple sections so this allows
+      # supporting multiple sections through this method.
+      sections = nil
+      if section_or_id.is_a?(Array)
+        sections = section_or_id
+        section_or_id = sections.first
+      end
       section = section_or_id.is_a?(CourseSection) ? section_or_id : CourseSection.where(id: section_or_id).first
       return unless section
 
@@ -448,10 +467,8 @@ class MessageableUser
           section_visible_courses.include?(course) &&
           visible_section_ids_in_courses([course]).include?(section.id)
 
-        scope = enrollment_scope(options.merge(
-          :include_concluded_students => false,
-          :course_workflow_state => course.workflow_state)).
-          where('enrollments.course_section_id' => section.id)
+        scope = enrollment_scope(options.merge(include_concluded_students: false, course_workflow_state: course.workflow_state))
+          .where(enrollments: { course_section_id: sections || section })
         scope = scope.where(observer_restriction_clause) if student_courses.present?
         scope = scope.where('enrollments.type' => enrollment_types) if enrollment_types
         scope
@@ -465,6 +482,7 @@ class MessageableUser
     # populated only with the group given.
     def messageable_users_in_group_scope(group_or_id, options={})
       return unless group_or_id
+
       group = group_or_id.is_a?(Group) ? group_or_id : Group.where(id: group_or_id).first
       return unless group
 
@@ -472,6 +490,9 @@ class MessageableUser
 
       group.shard.activate do
         if options[:admin_context] || fully_visible_group_ids.include?(group.id)
+          # bail early if user doesn't have permission to message group members
+          return if group&.context&.is_a?(Course) && !group.context.grants_right?(@user, nil, :send_messages)
+
           group_user_scope.where('group_memberships.group_id' => group.id).merge(active_users_in_group_context.except(:joins))
         elsif section_visible_group_ids.include?(group.id)
           # group.context is guaranteed to be a course from
@@ -485,6 +506,26 @@ class MessageableUser
           scope = scope.where(observer_restriction_clause) if student_courses.present?
           scope
         end
+      end
+    end
+
+    # find and return all the messageable users in a particular discussion (see
+    # messageable_users_in_context). This is used for mentioning a person.
+    #
+    # NOTE: the common_courses of the returned MessageableUser will not be
+    # populated
+    def messageable_users_in_discussion_scope(discussion_or_id, options={})
+      return unless discussion_or_id
+
+      discussion = discussion_or_id.is_a?(DiscussionTopic) ? discussion_or_id : DiscussionTopic.where(id: discussion_or_id).first
+      context = discussion.address_book_context_for(@user)
+
+      if context.is_a?(Course)
+        messageable_users_in_course_scope(context, nil, options)
+      elsif context.is_a?(Group)
+        messageable_users_in_group_scope(context, options)
+      else
+        messageable_users_in_section_scope(context, nil, options)
       end
     end
 
@@ -536,7 +577,7 @@ class MessageableUser
       ]
       if options[:include_concluded]
         clause = Enrollment::QueryBuilder.new(:completed, options.slice(:strict_checks)).conditions
-        clause << " AND enrollments.type IN ('TeacherEnrollment', 'TaEnrollment')" unless options[:include_concluded_students]
+        clause += " AND enrollments.type IN ('TeacherEnrollment', 'TaEnrollment')" unless options[:include_concluded_students]
         state_clauses << clause
       end
       state_clauses.compact!
@@ -637,7 +678,7 @@ class MessageableUser
     # enrollment in a course is as a student, he can't see observers that
     # aren't observing him
     def observer_restriction_clause
-      clause = ["enrollments.course_id NOT IN (?) OR enrollments.type != 'ObserverEnrollment'", student_courses.map(&:id)]
+      clause = [+"enrollments.course_id NOT IN (?) OR enrollments.type != 'ObserverEnrollment'", student_courses.map(&:id)]
       if linked_observer_ids.present?
         clause.first << " OR enrollments.user_id IN (?)"
         clause << linked_observer_ids

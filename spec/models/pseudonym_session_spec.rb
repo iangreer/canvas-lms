@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2011 - present Instructure, Inc.
 #
@@ -46,6 +48,8 @@ describe PseudonymSession do
       def cookies
         {}
       end
+
+      def renew_session_id; end
     end
     Authlogic::Session::Base.controller = fake_controller_cls.new
   end

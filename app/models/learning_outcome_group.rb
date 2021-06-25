@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2011 - present Instructure, Inc.
 #
@@ -19,17 +21,22 @@
 class LearningOutcomeGroup < ActiveRecord::Base
   include Workflow
   include MasterCourses::Restrictor
+  extend RootAccountResolver
+
   restrict_columns :state, [:workflow_state]
   self.ignored_columns = %i[migration_id_2 vendor_guid_2]
 
   belongs_to :learning_outcome_group
+  belongs_to :source_outcome_group, class_name: 'LearningOutcomeGroup', inverse_of: :destination_outcome_groups
+  has_many :destination_outcome_groups, class_name: 'LearningOutcomeGroup', inverse_of: :source_outcome_group, dependent: :nullify
   has_many :child_outcome_groups, :class_name => 'LearningOutcomeGroup', :foreign_key => "learning_outcome_group_id"
   has_many :child_outcome_links, -> { where(tag_type: 'learning_outcome_association', content_type: 'LearningOutcome') }, class_name: 'ContentTag', as: :associated_asset
   belongs_to :context, polymorphic: [:account, :course]
-  belongs_to :root_account, class_name: 'Account'
 
   before_save :infer_defaults
-  before_save :set_root_account_id
+  after_create :clear_descendants_cache
+  after_update :clear_descendants_cache, if: -> { clear_descendants_cache? }
+  resolves_root_account through: -> (group) { group.context_id ? group.context.resolved_root_account_id : 0 }
   validates :vendor_guid, length: { maximum: maximum_string_length, allow_nil: true }
   validates_length_of :description, :maximum => maximum_text_length, :allow_nil => true, :allow_blank => true
   validates_length_of :title, :maximum => maximum_string_length, :allow_nil => true, :allow_blank => true
@@ -117,14 +124,19 @@ class LearningOutcomeGroup < ActiveRecord::Base
   # moves an existing outcome link from the same context to be under this
   # group.
   def adopt_outcome_link(outcome_link, opts={})
+    return if self.context && self.context != outcome_link.context
+    # no-op if the group is global and the link isn't
+    return if self.context.nil? && outcome_link.context_type != 'LearningOutcomeGroup'
     # no-op if we're already the parent
-    return unless outcome_link.context == self.context
     return outcome_link if outcome_link.associated_asset == self
+
+    # update context_id if global
+    outcome_link.context_id = self.id if self.context.nil?
 
     # change the parent
     outcome_link.associated_asset = self
     outcome_link.save!
-    touch_parent_group
+    touch_parent_group unless opts[:skip_parent_group_touch]
     outcome_link
   end
 
@@ -184,7 +196,7 @@ class LearningOutcomeGroup < ActiveRecord::Base
       if !group && force
         group = scope.build :title => context.try(:name) || 'ROOT'
         group.building_default = true
-        Shackles.activate(:master) do
+        GuardRail.activate(:primary) do
           # during course copies/imports, observe may be disabled but import job will
           # not be aware of this lazy object creation
           ActiveRecord::Base.observers.enable LiveEventsObserver do
@@ -204,11 +216,6 @@ class LearningOutcomeGroup < ActiveRecord::Base
     scope = self
     scope = scope.select("learning_outcome_groups.*") if !all.select_values.present?
     scope.select(title_order_by_clause).order(title_order_by_clause)
-  end
-
-  def set_root_account_id
-    return if self.root_account_id.present?
-    self.root_account_id = self.context&.resolved_root_account_id
   end
 
   private
@@ -247,6 +254,14 @@ class LearningOutcomeGroup < ActiveRecord::Base
 
   def is_ancestor?(id)
     ancestor_ids.member?(id)
+  end
+
+  def clear_descendants_cache
+    Outcomes::LearningOutcomeGroupChildren.new(context).clear_descendants_cache
+  end
+
+  def clear_descendants_cache?
+    (previous_changes.keys & %w[learning_outcome_group_id workflow_state]).any?
   end
 
   private_class_method def self.title_order_by_clause(table = nil)

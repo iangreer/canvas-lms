@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2015 - present Instructure, Inc.
 #
@@ -16,9 +18,11 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 
 require File.expand_path(File.dirname(__FILE__) + '/common')
+require_relative '../helpers/k5_common'
 
 describe 'Global Navigation' do
   include_context 'in-process server selenium tests'
+  include K5Common
 
   context 'As a Teacher' do
     before do
@@ -105,6 +109,59 @@ describe 'Global Navigation' do
         @tool.save!
         get "/"
         expect(f('.ic-icon-svg--lti')).to be_displayed
+      end
+    end
+
+    describe 'Recent History' do
+      before do
+        Setting.set('enable_page_views', 'db')
+        @assignment = @course.assignments.create(:name => "another assessment")
+        @quiz = Quizzes::Quiz.create!(:title => 'quiz1', :context => @course)
+        page_view_for url: app_url + "/courses/#{@course.id}/assignments/#{@assignment.id}", context: @course,
+                      created_at: 5.minutes.ago, asset_category: 'assignments',
+                      asset_code: @assignment.asset_string
+        page_view_for url: app_url + "/courses/#{@course.id}/quizzes/#{@quiz.id}", context: @course,
+                      created_at: 1.minute.ago, asset_category: 'quizzes',
+                      asset_code: @quiz.asset_string
+      end
+
+      it 'should show the Recent History tray upon clicking' do
+        get "/"
+        f("#global_nav_history_link").click
+        wait_for_ajaximations
+        expect(f("[aria-label='Recent History tray']")).to be_displayed
+      end
+
+      it 'should show recent history items on Recent History tray' do
+        get "/"
+        f("#global_nav_history_link").click
+        wait_for_ajaximations
+        navigation_element_list = ffxpath("//*[@id = 'nav-tray-portal']//li//a")
+        expect(navigation_element_list[0].attribute('aria-label')).to eq('quiz1, Quiz')
+        expect(navigation_element_list[1].attribute('aria-label')).to eq('another assessment, Assignment')
+      end
+
+      it 'should include recent history assignment link' do
+        get "/"
+        f("#global_nav_history_link").click
+        wait_for_ajaximations
+        navigation_elements = ffxpath("//*[@id = 'nav-tray-portal']//li//a")
+        expect(navigation_elements[1].attribute('href')).to eq(app_url + "/courses/#{@course.id}/assignments/#{@assignment.id}")
+      end
+    end
+
+    describe 'dashboard and courses links' do
+      it 'should be called dashboard and courses with k5 off' do
+        get "/courses/#{@course.id}"
+        expect(f('#global_nav_dashboard_link .menu-item__text').text).to eq 'Dashboard'
+        expect(f('#global_nav_courses_link .menu-item__text').text).to eq 'Courses'
+      end
+
+      it 'should be called homeroom and subjects with k5 on' do
+        toggle_k5_setting(@course.account)
+        get "/courses/#{@course.id}"
+        expect(f('#global_nav_dashboard_link .menu-item__text').text).to eq 'Homeroom'
+        expect(f('#global_nav_courses_link .menu-item__text').text).to eq 'Subjects'
       end
     end
   end

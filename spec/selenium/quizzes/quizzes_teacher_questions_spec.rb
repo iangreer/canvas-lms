@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2012 - present Instructure, Inc.
 #
@@ -61,9 +63,6 @@ describe "quizzes questions" do
       answers[3].find_element(:css, ".delete_answer_link").click
       answers = question.find_elements(:css, ".form_answers > div.answer")
       expect(answers.length).to eq 3
-
-      # check that the wiki sidebar is visible
-      expect(f('#editor_tabs')).to include_text("Link to other content in the course.")
 
       submit_form(question)
       wait_for_ajaximations

@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2011 - present Instructure, Inc.
 #
@@ -36,7 +38,6 @@ class ContentMigration < ActiveRecord::Base
   after_save :handle_import_in_progress_notice
   after_save :check_for_blocked_migration
   before_create :set_root_account_id
-  attr_accessor :skip_root_account_assignment
 
   DATE_FORMAT = "%m/%d/%Y"
 
@@ -47,7 +48,7 @@ class ContentMigration < ActiveRecord::Base
   workflow do
     state :created
     state :queued
-    #The pre_process states can be used by individual plugins as needed
+    # The pre_process states can be used by individual plugins as needed
     state :pre_processing
     state :pre_processed
     state :pre_process_error
@@ -63,9 +64,47 @@ class ContentMigration < ActiveRecord::Base
     exclude_hidden ? plugins.select{|p|!p.meta[:hide_from_users]} : plugins
   end
 
+  def context_root_account(user = nil)
+    # Granular Permissions
+    #
+    # The primary use case for this method is for accurately checking
+    # feature flag enablement, given a user and the calling context.
+    # We want to prefer finding the root_account through the context
+    # of the authorizing resource or fallback to the user's active
+    # pseudonym's residing account.
+    return self.context.account if self.context.is_a?(User)
+
+    self.context.try(:root_account) || user&.account
+  end
+
   set_policy do
-    given { |user, session| self.context.grants_right?(user, session, :manage_files) }
+    #################### Begin legacy permission block #########################
+
+    given do |user, session|
+      !context_root_account(user).feature_enabled?(:granular_permissions_course_files) &&
+      self.context.grants_right?(user, session, :manage_files)
+    end
     can :manage_files and can :read
+
+    ##################### End legacy permission block ##########################
+
+    given do |user, session|
+      context_root_account(user).feature_enabled?(:granular_permissions_course_files) &&
+      self.context.grants_right?(user, session, :manage_files_add)
+    end
+    can :read and can :manage_files_add
+
+    given do |user, session|
+      context_root_account(user).feature_enabled?(:granular_permissions_course_files) &&
+      self.context.grants_right?(user, session, :manage_files_edit)
+    end
+    can :read and can :manage_files_edit
+
+    given do |user, session|
+      context_root_account(user).feature_enabled?(:granular_permissions_course_files) &&
+      self.context.grants_right?(user, session, :manage_files_delete)
+    end
+    can :read and can :manage_files_delete
   end
 
   def trigger_live_events!
@@ -170,7 +209,7 @@ class ContentMigration < ActiveRecord::Base
   end
 
   def question_bank_name=(name)
-    if name && name.strip! != ''
+    if (name = name&.strip) != ''
       migration_settings[:question_bank_name] = name
     end
   end
@@ -204,6 +243,7 @@ class ContentMigration < ActiveRecord::Base
   end
 
   def root_account
+    return super if root_account_id
     self.context.root_account rescue nil
   end
 
@@ -234,12 +274,19 @@ class ContentMigration < ActiveRecord::Base
   # error_report_id - the id to an error report
   # fix_issue_html_url - the url to send the user to to fix problem
   #
+  ISSUE_TYPE_TO_ERROR_LEVEL_MAP = {
+    todo: :info,
+    warning: :warn,
+    error: :error
+  }.freeze
+
   def add_issue(user_message, type, opts={})
     mi = self.migration_issues.build(:issue_type => type.to_s, :description => user_message)
     if opts[:error_report_id]
       mi.error_report_id = opts[:error_report_id]
     elsif opts[:exception]
-      er = Canvas::Errors.capture_exception(:content_migration, opts[:exception])[:error_report]
+      level = ISSUE_TYPE_TO_ERROR_LEVEL_MAP[type]
+      er = Canvas::Errors.capture_exception(:content_migration, opts[:exception], level)[:error_report]
       mi.error_report_id = er
     end
     mi.error_message = opts[:error_message]
@@ -261,7 +308,8 @@ class ContentMigration < ActiveRecord::Base
   end
 
   def add_error(user_message, opts={})
-    add_issue(user_message, :error, opts)
+    level = opts.fetch(:issue_level, :error)
+    add_issue(user_message, level, opts)
   end
 
   def add_warning(user_message, opts={})
@@ -290,14 +338,15 @@ class ContentMigration < ActiveRecord::Base
     add_warning(t('errors.import_error', "Import Error:") + " #{item_type} - \"#{item_name}\"", warning)
   end
 
-  def fail_with_error!(exception_or_info)
-    opts={}
+  def fail_with_error!(exception_or_info, error_message: nil, issue_level: :error)
+    opts={ issue_level: issue_level }
     if exception_or_info.is_a?(Exception)
       opts[:exception] = exception_or_info
     else
       opts[:error_message] = exception_or_info
     end
-    add_error(t(:unexpected_error, "There was an unexpected error, please contact support."), opts)
+    message = error_message || t(:unexpected_error, "There was an unexpected error, please contact support.")
+    add_error(message, opts)
     self.workflow_state = :failed
     job_progress.fail if job_progress && !skip_job_progress
     save
@@ -369,14 +418,16 @@ class ContentMigration < ActiveRecord::Base
         # it's ready to be imported
         self.workflow_state = :importing
         self.save
-        self.send_later_enqueue_args(:import_content, queue_opts.merge(:on_permanent_failure => :fail_with_error!))
+        delay(**queue_opts.merge(on_permanent_failure: :fail_with_error!)).import_content
       else
         # find worker and queue for conversion
         begin
           worker_class = Canvas::Migration::Worker.const_get(plugin.settings['worker'])
           self.workflow_state = :exporting
           self.save
-          Delayed::Job.enqueue(worker_class.new(self.id), queue_opts)
+          self.class.connection.after_transaction_commit do
+            Delayed::Job.enqueue(worker_class.new(self.id), queue_opts)
+          end
         rescue NameError
           self.workflow_state = 'failed'
           message = "The migration plugin #{migration_type} doesn't have a worker."
@@ -415,7 +466,7 @@ class ContentMigration < ActiveRecord::Base
         run_at = Setting.get('content_migration_requeue_delay_minutes', '60').to_i.minutes.from_now
         # if everything goes right, we'll queue it right away after the currently running one finishes
         # but if something goes catastropically wrong, then make sure we recheck it eventually
-        job = self.send_later_enqueue_args(:queue_migration, {:no_delay => true, :run_at => run_at},
+        job = delay(ignore_transaction: true, run_at: run_at).queue_migration(
           plugin, retry_count: retry_count + 1, expires_at: expires_at)
 
         if self.job_progress
@@ -525,6 +576,13 @@ class ContentMigration < ActiveRecord::Base
         self.master_course_subscription.load_tags! # load child content tags
         self.master_course_subscription.master_template.preload_restrictions!
 
+        data = JSON.parse(self.exported_attachment.open, :max_nesting => 50)
+        data = prepare_data(data)
+
+        # handle deletions before files are copied
+        deletions = data['deletions'].presence
+        process_master_deletions(deletions.except('AssignmentGroup')) if deletions # wait until after the import to do AssignmentGroups
+
         # copy the attachments
         source_export = ContentExport.find(self.migration_settings[:master_course_export_id])
         if source_export.selective_export?
@@ -542,9 +600,6 @@ class ContentMigration < ActiveRecord::Base
         MasterCourses::FolderHelper.update_folder_names_and_states(self.context, source_export)
         self.context.copy_attachments_from_course(source_export.context, :content_export => source_export, :content_migration => self)
         MasterCourses::FolderHelper.recalculate_locked_folders(self.context)
-
-        data = JSON.parse(self.exported_attachment.open, :max_nesting => 50)
-        data = prepare_data(data)
       else
         @exported_data_zip = download_exported_data
         @zip_file = Zip::File.open(@exported_data_zip.path)
@@ -564,11 +619,11 @@ class ContentMigration < ActiveRecord::Base
       end
 
       migration_settings[:migration_ids_to_import] ||= {:copy=>{}}
-      deletions = self.for_master_course_import? && data['deletions'].presence
-      process_master_deletions(deletions.except('AssignmentGroup')) if deletions # wait until after the import to do AssignmentGroups
+
       import!(data)
 
       process_master_deletions(deletions.slice('AssignmentGroup')) if deletions
+
       if !self.import_immediately?
         update_import_progress(100)
       end
@@ -602,9 +657,13 @@ class ContentMigration < ActiveRecord::Base
   end
 
   def quizzes_next_migration?
-    context.instance_of?(Course) && root_account &&
-      root_account.feature_enabled?(:import_to_quizzes_next) &&
+    context.instance_of?(Course) &&
+      context.feature_enabled?(:quizzes_next) &&
       migration_settings[:import_quizzes_next]
+  end
+
+  def quizzes_next_banks_migration?
+    self.quizzes_next_migration? && Account.site_admin.feature_enabled?(:new_quizzes_bank_migrations)
   end
 
   def import_quizzes_next!(data)
@@ -938,6 +997,22 @@ class ContentMigration < ActiveRecord::Base
     imported_migration_items_hash(klass).values
   end
 
+  def imported_migration_items_for_insert_type
+    import_type = migration_settings[:insert_into_module_type]
+    imported_items = if import_type.present?
+      class_name = self.class.import_class_name(import_type)
+      imported_migration_items_hash[class_name] ||= {}
+      imported_migration_items_hash[class_name].values
+    else
+      imported_migration_items
+    end
+  end
+
+  def self.import_class_name(import_type)
+    prefix = asset_string_prefix(collection_name(import_type.pluralize))
+    ActiveRecord::Base.convert_class_name(prefix)
+  end
+
   def find_imported_migration_item(klass, migration_id)
     imported_migration_items_hash(klass)[migration_id]
   end
@@ -985,13 +1060,16 @@ class ContentMigration < ActiveRecord::Base
   end
 
   def set_root_account_id
-    return if skip_root_account_assignment
-    case self.context
-    when Course, Group
-      self.root_account_id = self.context.root_account_id
-    when Account
-      self.root_account_id = self.context.resolved_root_account_id
-    end
+    self.root_account_id ||=
+      case self.context
+      when Course, Group
+        self.context.root_account_id
+      when Account
+        self.context.resolved_root_account_id
+      when User
+        0 # root account id unknown, use dummy root account id
+      end
+    Account.ensure_dummy_root_account if root_account_id == 0
   end
 
   def notification_link_anchor

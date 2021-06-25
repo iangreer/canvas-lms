@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2016 - present Instructure, Inc.
 #
@@ -54,8 +56,14 @@ module CC::Exporter::WebZip
 
     def convert_html_to_local(html)
       exported_html = @html_converter.html_content(html)
+      # see below
+      exported_html&.gsub!(CC::CCHelper::WEB_CONTENT_TOKEN, 'viewer/files')
       exported_html&.gsub!(CGI.escape(CC::CCHelper::WEB_CONTENT_TOKEN), 'viewer/files')
       CONTENT_TOKENS.each do |token|
+        # tokens contain $'s. content exported with an HTML4 parser will have
+        # escaped it, but newere content will not; check both ways
+        exported_html&.gsub!("#{token}/", '')
+        # HTML4 parser does
         exported_html&.gsub!("#{CGI.escape(token)}/", '')
       end
       exported_html
@@ -65,6 +73,7 @@ module CC::Exporter::WebZip
       export_files = tab_hidden?(:files) ? filter_and_clean_files(files) : files
       export_files.each do |file_data|
         next unless file_data[:exists]
+
         unless @path_to_files
           match = file_data[:path_to_file].match(%r{.*/web_resources/})
           @path_to_files = match.to_s
@@ -87,7 +96,9 @@ module CC::Exporter::WebZip
       item_list.select do |export_item|
         ident = type == :attachments ? export_item[:local_path].sub('media', '') : export_item[:identifier]
         next true if @linked_items.include?(ident)
+
         next unless [:quizzes, :discussion_topics].include?(type)
+
         !tab_hidden?(:assignments) && @canvas_object_export_hash[type][ident]&.assignment
       end
     end
@@ -125,16 +136,19 @@ module CC::Exporter::WebZip
 
     def check_for_links_and_mark_exportable(export_item, linked_items, items_to_check)
       # quizzes and discussions could be linked by assignment or quiz/discussion, so we need
-      #  to find the quiz/discussion export id to match it with the cc data
+      # to find the quiz/discussion export id to match it with the cc data
       # we're matching files by filename, which is under content instead of exportId
       export_id, assignment_export_id = real_export_id(export_item)
       return if linked_items.include?(export_id) || export_item[:locked]
+
       linked_items.add(export_id)
       linked_items.add(assignment_export_id) if assignment_export_id
       return if export_item[:type] == 'Attachment'
+
       type = string_to_symbol_type(export_item[:type])
       match_item = @export_item_map.dig(type, export_id)
       return unless match_item
+
       content = match_item[:content] || match_item[:text] || match_item[:description]
       linked_objects = format_linked_objects(CC::CCHelper.map_linked_objects(content))
       items_to_check.concat(linked_objects)
@@ -154,6 +168,7 @@ module CC::Exporter::WebZip
       module_data.each do |mod|
         mod[:items].each do |item|
           next unless CONTENT_TYPES.include?(item[:type]) || item[:type] == 'Attachment'
+
           check_for_links_and_mark_exportable(item, linked_items, items_to_check)
         end
       end
@@ -173,6 +188,7 @@ module CC::Exporter::WebZip
         attachments: files
       }
       return unless list.keys.any? {|type| tab_hidden?(type)}
+
       list.each {|type, item_list| map_export_item_ids(type, item_list)}
     end
 
@@ -180,7 +196,7 @@ module CC::Exporter::WebZip
       module_data = parse_module_data
       @linked_items = find_linked_items(module_data) if any_hidden_tabs?
       course_data = {
-        language: course.locale || user.locale || course.account.default_locale(true) || 'en',
+        language: course.locale || user.locale || Account.recursive_default_locale_for_id(course.account_id) || 'en',
         lastDownload: force_timezone(course.web_zip_exports.where(user: user).last&.created_at),
         title: course.name,
         modules: module_data,

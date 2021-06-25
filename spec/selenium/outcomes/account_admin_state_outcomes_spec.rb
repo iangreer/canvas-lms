@@ -1,5 +1,5 @@
-# encoding: utf-8
-#
+# frozen_string_literal: true
+
 # Copyright (C) 2014 - present Instructure, Inc.
 #
 # This file is part of Canvas.
@@ -110,7 +110,6 @@ describe "account admin outcomes" do
         fake_cc = root_group.child_outcome_groups.create!(:title => "Fake Common Core")
         11.times { root_group.child_outcome_groups.create!(:title => "G is after F") }
         last_group = root_group.child_outcome_groups.create!(:title => "Z is last")
-        Setting.set(AcademicBenchmark.common_core_setting_key, fake_cc.id.to_s)
 
         # go to the find panel
         get outcome_url
@@ -120,7 +119,7 @@ describe "account admin outcomes" do
 
         # click on state standards
         top_level_groups = ff(".outcome-level .outcome-group")
-        expect(top_level_groups.count).to eq 3
+        expect(top_level_groups.count).to eq 2
         top_level_groups[1].click
         wait_for_ajaximations
 

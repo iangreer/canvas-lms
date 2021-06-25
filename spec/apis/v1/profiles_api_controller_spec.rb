@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2014 Instructure, Inc.
 #
@@ -17,7 +19,6 @@
 #
 
 require File.expand_path(File.dirname(__FILE__) + '/../api_spec_helper')
-
 
 def call_setting(opts)
   status_assertion = opts[:assert_unauthorized] ? {:expected_status => 401} : {}

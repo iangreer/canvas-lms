@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2019 - present Instructure, Inc.
 #
@@ -17,7 +19,7 @@
 #
 
 class OnlineSubmissionType < Types::BaseEnum
-  VALID_SUBMISSION_TYPES = %w[media_recording online_text_entry online_upload online_url].freeze
+  VALID_SUBMISSION_TYPES = %w[student_annotation media_recording online_text_entry online_upload online_url].freeze
 
   graphql_name 'OnlineSubmissionType'
   description 'Types that can be submitted online'
@@ -28,6 +30,10 @@ end
 class Mutations::CreateSubmission < Mutations::BaseMutation
   graphql_name 'CreateSubmission'
 
+  argument :annotatable_attachment_id,
+           ID,
+           required: false,
+           prepare: GraphQLHelpers.relay_or_legacy_id_prepare_func('Attachment')
   argument :assignment_id,
            ID,
            required: true, prepare: GraphQLHelpers.relay_or_legacy_id_prepare_func('Assignment')
@@ -51,6 +57,7 @@ class Mutations::CreateSubmission < Mutations::BaseMutation
 
     submission_type = input[:submission_type]
     submission_params = {
+      annotatable_attachment_id: input[:annotatable_attachment_id],
       attachments: [],
       body: '',
       require_submission_type_is_valid: true,
@@ -59,6 +66,10 @@ class Mutations::CreateSubmission < Mutations::BaseMutation
     }
 
     case submission_type
+    when 'student_annotation'
+      if input[:annotatable_attachment_id].blank?
+        return validation_error(I18n.t('Student Annotation submissions require an annotatable_attachment_id to submit'))
+      end
     when 'media_recording'
       unless input[:media_id]
         return(

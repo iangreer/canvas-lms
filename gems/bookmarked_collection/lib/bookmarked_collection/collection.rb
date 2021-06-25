@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2012 - present Instructure, Inc.
 #
@@ -74,7 +76,7 @@ class BookmarkedCollection::Collection < Array
   attr_accessor :include_bookmark
 
   def bookmark_to_page(bookmark)
-    bookmark && "bookmark:#{::JSONToken.encode(bookmark)}"
+    bookmark && "bookmark:#{::JSONToken.encode(format_dates(bookmark))}"
   end
 
   def page_to_bookmark(page)
@@ -82,7 +84,7 @@ class BookmarkedCollection::Collection < Array
     if page == first_page
       nil
     else
-      if page =~ /^bookmark:/
+      if page.is_a?(String) && page =~ /^bookmark:/
         begin
           ::JSONToken.decode(page.gsub(/^bookmark:/, ''))
         rescue
@@ -115,5 +117,16 @@ class BookmarkedCollection::Collection < Array
 
   def has_more!
     self.next_bookmark = bookmark_for(last)
+  end
+
+  def format_dates(bookmark)
+    # to_json will record local time + UTC offset with seconds truncated, both of which will screw up pagination
+    if bookmark.respond_to?(:iso8601)
+      bookmark.utc.iso8601(6)
+    elsif bookmark.is_a?(Array)
+      bookmark.map { |e| format_dates(e) }
+    else
+      bookmark
+    end
   end
 end

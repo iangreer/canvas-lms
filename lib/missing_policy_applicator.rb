@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2017 - present Instructure, Inc.
 #
@@ -21,7 +23,7 @@ class MissingPolicyApplicator
   end
 
   def apply_missing_deductions
-    Shackles.activate(:slave) do
+    GuardRail.activate(:secondary) do
       recently_missing_submissions.find_in_batches do |submissions|
         filtered_submissions = submissions.reject { |s| s.grading_period&.closed? }
         filtered_submissions.group_by(&:assignment).each(&method(:apply_missing_deduction))
@@ -33,13 +35,14 @@ class MissingPolicyApplicator
 
   def recently_missing_submissions
     now = Time.zone.now
-    Submission.active.
-      joins(assignment: {course: :late_policy}).
-      eager_load(:grading_period, assignment: [:post_policy, { course: [:late_policy, :default_post_policy] }]).
-      for_enrollments(Enrollment.all_active_or_pending).
-      merge(Assignment.published).
-      missing.
-      where(score: nil, grade: nil, cached_due_date: 1.day.ago(now)..now,
+    Submission.active
+      .joins(assignment: {course: [:late_policy, :enrollments]})
+      .where("enrollments.user_id = submissions.user_id")
+      .eager_load(:grading_period, assignment: [:post_policy, { course: [:late_policy, :default_post_policy] }])
+      .merge(Assignment.published)
+      .merge(Enrollment.all_active_or_pending)
+      .missing
+      .where(score: nil, grade: nil, cached_due_date: 1.day.ago(now)..now,
             late_policies: { missing_submission_deduction_enabled: true })
   end
 
@@ -49,8 +52,10 @@ class MissingPolicyApplicator
     grade = assignment.score_to_grade(score)
     now = Time.zone.now
 
-    Shackles.activate(:master) do
-      Submission.active.where(id: submissions).update_all(
+    GuardRail.activate(:primary) do
+      submissions = Submission.active.where(id: submissions)
+
+      submissions.update_all(
         score: score,
         grade: grade,
         graded_at: now,
@@ -62,8 +67,12 @@ class MissingPolicyApplicator
         workflow_state: "graded"
       )
 
+      if Account.site_admin.feature_enabled?(:fix_missing_policy_grade_change_records)
+        submissions.reload.each { |sub| sub.grade_change_audit(force_audit: true) }
+      end
+
       if assignment.course.root_account.feature_enabled?(:missing_policy_applicator_emits_live_events)
-        Canvas::LiveEvents.send_later_if_production(:submissions_bulk_updated, submissions)
+        Canvas::LiveEvents.delay_if_production.submissions_bulk_updated(submissions)
       end
 
       assignment.course.recompute_student_scores(submissions.map(&:user_id).uniq)

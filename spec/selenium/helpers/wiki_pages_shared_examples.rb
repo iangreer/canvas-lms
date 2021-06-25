@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2013 - present Instructure, Inc.
 #
@@ -26,7 +28,6 @@ RSpec.shared_examples "course_pages_granular_permissions" do
   end
 
   before do
-    set_granular_permission
     @role = Role.get_built_in_role(@enrollment.type, root_account_id: Account.default.id)
     unless @role.base_role_type == "TeacherEnrollment"
       raise "only base role type of TeacherEnrollment supported"
@@ -45,7 +46,6 @@ RSpec.shared_examples "course_pages_granular_permissions" do
           visit_wiki_page_view(@course.id, @page.title)
           expect(published_status_published).to be_displayed
           expect(wiki_page_show).not_to contain_css(edit_btn_selector)
-          expect(wiki_page_show).not_to contain_css(more_options_btn_selector)
         end
       end
 

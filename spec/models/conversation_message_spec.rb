@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2011 - present Instructure, Inc.
 #
@@ -136,7 +138,7 @@ describe ConversationMessage do
       course_with_teacher(active_all: true)
       student = student_in_course(active_all: true).user
       conversation = @teacher.initiate_conversation([student])
-      conversation.add_message("reprimanded!", :generate_user_note => true)
+      conversation.add_message("reprimanded!", generate_user_note: true, root_account_id: Account.default.id)
       expect(student.user_notes.size).to be(1)
       note = student.user_notes.first
       expect(note.creator).to eql(@teacher)
@@ -149,7 +151,7 @@ describe ConversationMessage do
       course_with_teacher(active_all: true)
       student = student_in_course(active_all: true).user
       conversation = @teacher.initiate_conversation([student])
-      conversation.add_message("reprimanded!", :generate_user_note => true)
+      conversation.add_message("reprimanded!", generate_user_note: true, root_account_id: Account.default.id)
       expect(student.user_notes.size).to be(0)
     end
 
@@ -159,7 +161,7 @@ describe ConversationMessage do
       student1 = student_in_course(active_all: true).user
       student2 = student_in_course(active_all: true).user
       conversation = @teacher.initiate_conversation([student1, student2])
-      conversation.add_message("reprimanded!", :generate_user_note => true)
+      conversation.add_message("reprimanded!", generate_user_note: true, root_account_id: Account.default.id)
       expect(student1.user_notes.size).to be(1)
       expect(student2.user_notes.size).to be(1)
     end

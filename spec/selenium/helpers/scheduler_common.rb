@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2012 - present Instructure, Inc.
 #
@@ -171,12 +173,6 @@ module SchedulerCommon
     wait_for_ajaximations
     expect(f('.view_calendar_link').text).to eq appointment_name
     expect(f('.ag-location')).to include_text(location_name)
-  end
-
-  def open_edit_dialog
-    driver.action.move_to(f('.appointment-group-item')).perform
-    click_al_option('.edit_link')
-    wait_for_ajaximations
   end
 
   def open_edit_appointment_group_event_dialog

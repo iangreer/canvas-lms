@@ -54,6 +54,12 @@ export default class TrayController {
     this._editor = editor
     this.$videoContainer = findVideoPlayerIframe(editor.selection.getNode())
     this._shouldOpen = true
+
+    if (bridge.focusedEditor) {
+      // Dismiss any content trays that may already be open
+      bridge.hideTrays()
+    }
+
     const trayProps = bridge.trayProps.get(editor)
     this._renderTray(trayProps)
   }
@@ -111,20 +117,25 @@ export default class TrayController {
         this._editor.selection.select(link)
         this.$videoContainer = null
       }
-      videoOptions
-        .updateMediaObject({
-          media_object_id: videoOptions.media_object_id,
-          title: videoOptions.titleText,
-          subtitles: videoOptions.subtitles
-        })
-        .then(_r => {
-          if (this.$videoContainer && videoOptions.displayAs === 'embed') {
-            this.$videoContainer.contentWindow.location.reload()
-          }
-        })
-        .catch(ex => {
-          console.error('failed updating video captions', ex) // eslint-disable-line no-console
-        })
+      // If the video just edited came from a file uploaded to canvas
+      // and not notorious, we probably don't have a media_object_id.
+      // If not, we can't update the MediaObject in the canvas db.
+      if (videoOptions.media_object_id && videoOptions.media_object_id !== 'undefined') {
+        videoOptions
+          .updateMediaObject({
+            media_object_id: videoOptions.media_object_id,
+            title: videoOptions.titleText,
+            subtitles: videoOptions.subtitles
+          })
+          .then(_r => {
+            if (this.$videoContainer && videoOptions.displayAs === 'embed') {
+              this.$videoContainer.contentWindow.location.reload()
+            }
+          })
+          .catch(ex => {
+            console.error('failed updating video captions', ex) // eslint-disable-line no-console
+          })
+      }
     }
     this._dismissTray()
   }
@@ -153,6 +164,7 @@ export default class TrayController {
 
     const element = (
       <VideoOptionsTray
+        id="video-options-tray"
         key={this._renderId}
         videoOptions={vo}
         onEntered={() => {

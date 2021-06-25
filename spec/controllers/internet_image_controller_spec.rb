@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2019 - present Instructure, Inc.
 #
@@ -51,23 +53,23 @@ describe InternetImageController do
     end
 
     it 'should update link headers to point to Canvas' do
-      stub_request(:get, "https://api.unsplash.com/search/photos?page=1&per_page=10&query=cats").to_return(
+      stub_request(:get, "https://api.unsplash.com/search/photos?content_filter=high&page=1&per_page=10&query=cats").to_return(
         status: 200,
         body: '',
         headers: {
-          'Link' => '<https://api.unsplash.com/search/photos?page=1&query=cats>; rel="first", <https://api.unsplash.com/search/photos?page=1&query=cats>; rel="prev", <https://api.unsplash.com/search/photos?page=3&query=cats>; rel="last", <https://api.unsplash.com/search/photos?page=3&query=cats>; rel="next"'
+          'Link' => '<https://api.unsplash.com/search/photos?content_filter=high&page=1&query=cats>; rel="first", <https://api.unsplash.com/search/photos?content_filter=high&page=1&query=cats>; rel="prev", <https://api.unsplash.com/search/photos?content_filter=high&page=3&query=cats>; rel="last", <https://api.unsplash.com/search/photos?content_filter=high&page=3&query=cats>; rel="next"'
         }
       )
       get 'image_search', params: {query: 'cats'}
       local_url = request.protocol + request.host_with_port
-      expect(response.headers['Link']).to eq "<#{local_url}/api/v1/image_search?page=1&query=cats>; rel=\"first\", <#{local_url}/api/v1/image_search?page=1&query=cats>; rel=\"prev\", <#{local_url}/api/v1/image_search?page=3&query=cats>; rel=\"last\", <#{local_url}/api/v1/image_search?page=3&query=cats>; rel=\"next\""
+      expect(response.headers['Link']).to eq "<#{local_url}/api/v1/image_search?content_filter=high&page=1&query=cats>; rel=\"first\", <#{local_url}/api/v1/image_search?content_filter=high&page=1&query=cats>; rel=\"prev\", <#{local_url}/api/v1/image_search?content_filter=high&page=3&query=cats>; rel=\"last\", <#{local_url}/api/v1/image_search?content_filter=high&page=3&query=cats>; rel=\"next\""
     end
 
     it 'should return only the data we specify' do
-      stub_request(:get, "https://api.unsplash.com/search/photos?page=1&per_page=10&query=cats").
+      stub_request(:get, "https://api.unsplash.com/search/photos?content_filter=high&page=1&per_page=10&query=cats").
         to_return(status: 200, body: file_fixture("unsplash.json").read, headers: {'Content-Type' => 'application/json'})
       get 'image_search', params: {query: 'cats'}
-      json = JSON.parse(response.body.sub("while(1)\;", '')).first
+      json = JSON.parse(response.body).first
       expect(json['description']).to eq nil
       expect(json['alt']).to eq 'selective focus photo of gray tabby cat'
       expect(json['user']).to eq "Erika Jan"
@@ -83,7 +85,7 @@ describe InternetImageController do
     it 'should send the app key as a client id header' do
       stub_request(:get, "https://api.unsplash.com/search/photos?page=1&per_page=10&query=cats").with(headers: {'Authorization': 'Client-ID key'})
       get 'image_search', params: {query: 'cats'}
-      expect(WebMock).to have_requested(:get, "https://api.unsplash.com/search/photos?page=1&per_page=10&query=cats").
+      expect(WebMock).to have_requested(:get, "https://api.unsplash.com/search/photos?content_filter=high&page=1&per_page=10&query=cats").
         with(headers: {'Authorization': 'Client-ID key'}).once
     end
 
@@ -92,7 +94,7 @@ describe InternetImageController do
         WebMock::Config.instance.query_values_notation = :flat_array
         stub_request(:get, "https://api.unsplash.com/search/photos?page=2&per_page=18&query=cats").with(headers: {'Authorization': 'Client-ID key'})
         get 'image_search', params: {"query" => 'cats', "per_page" => 18, "page" => 2, "orientation" => 'landscape'}
-        expect(WebMock).to have_requested(:get, "https://api.unsplash.com/search/photos?page=2&per_page=18&query=cats&orientation=landscape").
+        expect(WebMock).to have_requested(:get, "https://api.unsplash.com/search/photos?content_filter=high&page=2&per_page=18&query=cats&orientation=landscape").
           with(headers: {'Authorization': 'Client-ID key'}).once
       ensure
         WebMock::Config.instance.query_values_notation = :subscript
@@ -118,7 +120,7 @@ describe InternetImageController do
       post 'image_selection', params: {id: "MNXkDmA1CTOTRxPFXAtX59DunVompzL9sdrM_Qa18WkF96Kd9ZlGD6xWDJlNgU4S3RQMdMPX4lrZ~dWUR5iRwMEGydMoD~fCYd8vLgJASKwTKsesSgTQ"}
       expect(WebMock).to have_requested(:head, "https://api.unsplash.com/photos/bPxGLgJiMI/download").
         with(headers: {'Authorization': 'Client-ID key'}).once
-      expect(JSON.parse(response.body.sub("while(1)\;", ''))).to eq({"message" => 'Confirmation success. Thank you.'})
+      expect(JSON.parse(response.body)).to eq({"message" => 'Confirmation success. Thank you.'})
     end
 
     it 'should show Unsplash message if Unsplash gives a 404' do
@@ -127,12 +129,12 @@ describe InternetImageController do
       post 'image_selection', params: {id: "MNXkDmA1CTOTRxPFXAtX59DunVompzL9sdrM_Qa18WkF96Kd9ZlGD6xWDJlNgU4S3RQMdMPX4lrZ~dWUR5iRwMEGydMoD~fCYd8vLgJASKwTKsesSgTQ"}
       expect(WebMock).to have_requested(:head, "https://api.unsplash.com/photos/bPxGLgJiMI/download").
         with(headers: {'Authorization': 'Client-ID key'}).once
-      expect(JSON.parse(response.body.sub("while(1)\;", ''))).to eq({"message" => "Couldn't find Photo"})
+      expect(JSON.parse(response.body)).to eq({"message" => "Couldn't find Photo"})
     end
 
     it 'should show an id error if it fails to parse the id' do
       post 'image_selection', params: {id: "MNXkDmA1CTOTRxPFXAtX59DunVompzL9sdrM_Qa18WkF96Kd9ZlGD6xWDJlNgU4S3RQMdMPX4lr~dWUR5iRwMEGydMoD~fCYd8vLgJASKwTKsesSgTQ"}
-      expect(JSON.parse(response.body.sub("while(1)\;", ''))).to eq({"message" => 'Could not find image.  Please check the id and try again'})
+      expect(JSON.parse(response.body)).to eq({"message" => 'Could not find image.  Please check the id and try again'})
     end
 
     it 'should show 500 error if another error happens' do

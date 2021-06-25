@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 # Copyright (C) 2013 - present Instructure, Inc.
 #
 # This file is part of Canvas.
@@ -37,13 +39,14 @@ RSpec.describe Outcomes::Import do
     attr_reader :context
   end
 
-  let_once(:context) { account_model }
-  let_once(:course) { course_model(account: context) }
+  let_once(:root_account) { account_model }
+  let_once(:course) { course_model(account: root_account) }
   let_once(:other_context) { account_model }
-  let_once(:parent1) { outcome_group_model(context: context, vendor_guid: 'parent1') }
-  let_once(:parent2) { outcome_group_model(context: context, vendor_guid: 'parent2') }
   let_once(:outcome_vendor_guid) { 'imanoutcome' }
   let_once(:group_vendor_guid) { 'imagroup' }
+  let(:context) { root_account }
+  let(:parent1) { outcome_group_model(context: context, vendor_guid: 'parent1') }
+  let(:parent2) { outcome_group_model(context: context, vendor_guid: 'parent2') }
   let(:group_attributes) do
     {
       title: "i'm a group",
@@ -287,7 +290,7 @@ RSpec.describe Outcomes::Import do
           expect do
             importer.import_outcome(
               **existing_outcome.slice(:title, :description, :display_name,
-                :workflow_state, :calculation_method, :calculation_int).symbolize_keys,
+                                       :workflow_state, :calculation_method, :calculation_int).symbolize_keys,
               vendor_guid: magic_guid
             )
             existing_outcome.reload
@@ -426,11 +429,12 @@ RSpec.describe Outcomes::Import do
       end
 
       context 'with outcomes from other contexts' do
-        let(:parent_context) { account_model }
+        let(:subaccount) { root_account.sub_accounts.create! }
+        let(:context) { subaccount }
 
         before do
-          context.update! parent_account: parent_context
-          existing_outcome.update! context: parent_context
+          parent1.update! context: subaccount
+          parent2.update! context: subaccount
         end
 
         it 'does not assign parents when attributes are changed' do
@@ -454,7 +458,9 @@ RSpec.describe Outcomes::Import do
         end
 
         context 'with global context' do
-          let(:parent_context) { nil }
+          before do
+            existing_outcome.update! context: nil
+          end
 
           it 'does not assign parents when attributes are changed' do
             expect do

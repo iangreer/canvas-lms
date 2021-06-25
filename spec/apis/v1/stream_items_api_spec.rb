@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2011 - 2012 Instructure, Inc.
 #
@@ -464,7 +466,9 @@ describe UsersController, type: :request do
         'time_zone' => 'America/Denver',
         'uuid' => @course.uuid,
         'blueprint' => false,
-        'license' => nil
+        'license' => nil,
+        'homeroom_course' => false,
+        'course_color' => nil
       },
 
       'user' => {
@@ -596,7 +600,9 @@ describe UsersController, type: :request do
         'time_zone' => 'America/Denver',
         'uuid' => @course.uuid,
         'blueprint' => false,
-        'license' => nil
+        'license' => nil,
+        'homeroom_course' => false,
+        'course_color' => nil
       },
 
       'user' => {

@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2011 - present Instructure, Inc.
 #
@@ -95,39 +97,46 @@ describe Quizzes::QuizSubmissionsController do
   end
 
   describe "PUT 'update'" do
-    before(:once) { quiz_with_submission }
-    it "should require authentication" do
-      put 'update', params: {:course_id => @quiz.context_id, :quiz_id => @quiz.id, :id => @qsub.id}
-      assert_unauthorized
+    context 'quiz with submission' do
+      before(:once) { quiz_with_submission }
+
+      it "should require authentication" do
+        put 'update', params: {:course_id => @quiz.context_id, :quiz_id => @quiz.id, :id => @qsub.id}
+        assert_unauthorized
+      end
+
+      it "should allow updating scores if the teacher is logged in" do
+        user_session(@teacher)
+        put 'update', params: {:course_id => @quiz.context_id, :quiz_id => @quiz.id, :id => @qsub.id, "question_score_128" => "2"}
+        expect(response).to be_redirect
+        expect(assigns[:submission]).not_to be_nil
+        expect(assigns[:submission].submission_data[0][:points]).to eq 2
+      end
+
+      it "should not allow updating if the course is concluded" do
+        @teacher_enrollment.conclude
+        put 'update', params: {:course_id => @quiz.context_id, :quiz_id => @quiz.id, :id => @qsub.id}
+        assert_unauthorized
+      end
+
+      it "should not allow updating if the student is not assigned the quiz" do
+        user_session(@teacher)
+        allow_any_instance_of(Quizzes::Quiz).to receive(:visible_to_user?).and_return(false)
+        put 'update', params: {:course_id => @quiz.context_id, :quiz_id => @quiz.id, :id => @qsub.id}
+        assert_forbidden
+      end
     end
 
-    it "should allow updating scores if the teacher is logged in" do
-      user_session(@teacher)
-      put 'update', params: {:course_id => @quiz.context_id, :quiz_id => @quiz.id, :id => @qsub.id, "question_score_128" => "2"}
-      expect(response).to be_redirect
-      expect(assigns[:submission]).not_to be_nil
-      expect(assigns[:submission].submission_data[0][:points]).to eq 2
-    end
+    context 'practice quiz with submission' do
+      before(:once) { practice_quiz_with_submission }
 
-    it "should not allow updating if the course is concluded" do
-      @teacher_enrollment.conclude
-      put 'update', params: {:course_id => @quiz.context_id, :quiz_id => @quiz.id, :id => @qsub.id}
-      assert_unauthorized
-    end
-
-    it "should not allow updating if the student is not assigned the quiz" do
-      # we create an override that does not include "the student"
-      ao = AssignmentOverride.create(
-        assignment: @quiz.assignment,
-        title: 'ADHOC OVERRIDE',
-        workflow_state: 'active',
-        set_type: 'ADHOC'
-      )
-      override_student = ao.assignment_override_students.build
-      override_student.user = student_in_course(course: @course).user
-      override_student.save!
-      put 'update', params: {:course_id => @quiz.context_id, :quiz_id => @quiz.id, :id => @qsub.id}
-      assert_unauthorized
+      it "should allow updating scores for a practice quiz" do
+        user_session(@teacher)
+        put 'update', params: {:course_id => @quiz.context_id, :quiz_id => @quiz.id, :id => @qsub.id, "question_score_128" => "2"}
+        expect(response).to be_redirect
+        expect(assigns[:submission]).not_to be_nil
+        expect(assigns[:submission].submission_data[0][:points]).to eq 2
+      end
     end
   end
 
@@ -218,20 +227,21 @@ describe Quizzes::QuizSubmissionsController do
       it "queues a job to get all attachments for all submissions of a quiz" do
         user_session(@teacher)
         quiz = course_quiz !!:active
-        expect(ContentZipper).to receive(:send_later_enqueue_args).with(:process_attachment,
-          {priority: Delayed::LOW_PRIORITY, max_attempts: 1}, anything)
+        expect(ContentZipper).to receive(:delay).and_return(ContentZipper)
+        expect(ContentZipper).to receive(:process_attachment)
         get 'index', params: {quiz_id: quiz.id, zip: '1', course_id: @course}
       end
 
       it "still works even after the teacher can't actively grade anymore" do
-        @course.enrollment_term.enrollment_dates_overrides.create!(:enrollment_type => "TeacherEnrollment",
-          :start_at => 2.days.ago, :end_at => 1.day.ago)
+        term = @course.enrollment_term
+        term.enrollment_dates_overrides.create!(
+          enrollment_type: "TeacherEnrollment", start_at: 2.days.ago, end_at: 1.day.ago, context: term.root_account)
         user_session(@teacher)
         quiz = course_quiz !!:active
         expect(quiz.grants_right?(@teacher, :grade)).to eq false
         expect(quiz.grants_right?(@teacher, :review_grades)).to eq true
-        expect(ContentZipper).to receive(:send_later_enqueue_args).with(:process_attachment,
-          {priority: Delayed::LOW_PRIORITY, max_attempts: 1}, anything)
+        expect(ContentZipper).to receive(:delay).and_return(ContentZipper)
+        expect(ContentZipper).to receive(:process_attachment)
         get 'index', params: {quiz_id: quiz.id, zip: '1', course_id: @course}
       end
     end

@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2011 - present Instructure, Inc.
 #
@@ -49,7 +51,7 @@ describe "discussion_topics" do
 
     get "/groups/#{@group.id}/discussion_topics/#{@topic.id}"
     expect(response).to be_successful
-    doc = Nokogiri::HTML.parse(response.body)
+    doc = Nokogiri::HTML5(response.body)
     link_text = doc.at_css("span.discussion-subtitle a").text
     expect(link_text).to eq @course.short_name
   end
@@ -81,7 +83,7 @@ describe "discussion_topics" do
 
     get "/courses/#{@course.id}/discussion_topics/#{@topic.id}"
     expect(response).to be_successful
-    doc = Nokogiri::HTML(response.body)
+    doc = Nokogiri::HTML5(response.body)
     expect(doc.at_css('.admin-links .icon-speed-grader')).not_to be_nil
   end
 
@@ -93,7 +95,7 @@ describe "discussion_topics" do
 
     get "/courses/#{@course.id}/discussion_topics/#{@topic.id}"
     expect(response).to be_successful
-    doc = Nokogiri::HTML(response.body)
+    doc = Nokogiri::HTML5(response.body)
     expect(doc.at_css('.admin-links .icon-peer-review')).not_to be_nil
   end
 end

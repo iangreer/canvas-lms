@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2020 - present Instructure, Inc.
 #
@@ -49,7 +51,7 @@ module DataFixup::PopulateRootAccountIdsOnLearningOutcomes
       # account for nil or empty array root_account_ids
       normal_outcomes = LearningOutcome.where(id: batch_min..batch_max).where("root_account_ids IS NULL OR root_account_ids = ?", "{}")
       normal_outcomes.joins(:course).update_all("root_account_ids=ARRAY[courses.root_account_id]")
-      normal_outcomes.joins(:account).update_all("root_account_ids=ARRAY[COALESCE(accounts.root_account_id, accounts.id)]")
+      normal_outcomes.joins(:account).update_all("root_account_ids=ARRAY[#{Account.resolved_root_account_id_sql}]")
     end
   end
 end

@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 #
 # Copyright (C) 2015 - present Instructure, Inc.
 #
@@ -82,7 +84,7 @@ describe "discussion assignments" do
       expect(f('.new-and-total-badge .new-items').text).to include ""
       user_session(@student1)
       get "/courses/#{@course.id}/discussion_topics"
-      expect_new_page_load{f('.discussion-title').click}
+      expect_new_page_load{f("[data-testid='discussion-link-#{@discussion_topic.id}']").click}
       expect(f('#breadcrumbs').text).to include('some group')
       f('.discussion-reply-action').click
       type_in_tiny 'textarea', 'something to submit'
